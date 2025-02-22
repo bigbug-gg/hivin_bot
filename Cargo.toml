@@ -1,0 +1,16 @@
+[package]
+name = "hivin_bot"
+version = "0.1.0"
+edition = "2021"
+
+
+[dependencies]
+teloxide = { version = "0.13", features = ["macros", "bincode-serializer", "sqlite-storage-rustls"] }
+log =  "0.4"
+pretty_env_logger = "0.5"
+tokio = { version =  "1", features = ["rt-multi-thread", "macros"] }
+dotenv = "0.15"
+serde = { version = "1.0.217", features = ["derive"] }
+sqlx = {version="0.7.4", features = ["sqlite", "macros", "runtime-tokio-rustls", "chrono"]}
+chrono = "0.4.39"
+anyhow = "1.0.96"
