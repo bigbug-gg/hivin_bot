@@ -9,12 +9,12 @@ pub struct Group {
 
 #[derive(sqlx::FromRow, Debug)]
 pub struct GroupInfo {
-    id: i64,
-    group_id: String,
-    group_name: String,
-    mute_polling: bool,
-    mute_welcome: bool,
-    created_at: chrono::DateTime<Utc>,
+    pub id: i64,
+    pub group_id: String,
+    pub group_name: String,
+    pub mute_polling: bool,
+    pub mute_welcome: bool,
+    pub created_at: chrono::DateTime<Utc>,
 }
 
 pub fn new(conn: Db) -> Group {

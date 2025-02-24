@@ -23,8 +23,9 @@ pub async fn add_msg() {
     let ser = get_sev().await;
     let msg_type = MsgType::Welcome;
     let msg_text = "Hello, world!";
+    let msg_title = "one";
     
-    let id = ser.add_msg(msg_type, msg_text).await;
+    let id = ser.add_msg(msg_type, msg_text, msg_title).await;
     assert!(id > 0, "添加消息成功");
     println!("Add new msg success, The id: {}", id);
 }

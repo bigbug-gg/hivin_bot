@@ -1,8 +1,11 @@
 //!
 //! Bot Main Enter
-//! 
+//!
+
 #[tokio::main]
 async fn main() {
-  hivin_bot::run().await;
+  if let Err(e) = hivin_bot::run().await {
+    eprintln!("Error: {}", e);
+  }
 }
 

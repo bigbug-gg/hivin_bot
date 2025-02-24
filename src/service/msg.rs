@@ -14,10 +14,11 @@ pub fn new(conn: Db) -> Msg {
 
 #[derive(sqlx::FromRow, Debug)]
 pub struct Message {
-    id: i64, // 或 i32，取决于数据库字段类型
-    msg_type: MsgType,
-    msg_text: String,
-    created_at: chrono::DateTime<Utc>, // 或其他时间类型
+    pub id: i64, // 或 i32，取决于数据库字段类型
+    pub msg_type: MsgType,
+    pub msg_text: String,
+    pub msg_title: String,
+    pub created_at: chrono::DateTime<Utc>, // 或其他时间类型
 }
 
 #[derive(Debug, sqlx::Type, PartialEq, Clone)]
@@ -28,14 +29,14 @@ pub enum MsgType {
     Welcome = 2,
 }
 
-
 impl Msg {
     pub async fn all(&self) -> Vec<Message> {
-        sqlx::query("SELECT id, msg_type, msg_text, created_at FROM hv_msg")
+        sqlx::query("SELECT * FROM hv_msg")
             .map(|row: sqlx::sqlite::SqliteRow| Message {
                 id: row.get("id"),
                 msg_type: row.try_get("msg_type").unwrap(),
                 msg_text: row.get("msg_text"),
+                msg_title: row.get("msg_title"),
                 created_at: row.get("created_at"),
             })
             .fetch_all(&self.conn.sqlite_pool)
@@ -44,7 +45,7 @@ impl Msg {
     }
 
     /// Add new msg, return the msg id.
-    pub async fn add_msg(&self, msg_type: MsgType, msg_text: &str) -> i64 {
+    pub async fn add_msg(&self, msg_type: MsgType, msg_text: &str, msg_title: &str) -> i64 {
         // 欢迎消息，始终只有能有 1 条数据
         // 当存在之前的数据， 用新的数据更新
         // 不存在则新增
@@ -56,7 +57,7 @@ impl Msg {
                 .unwrap();
 
             if has_one > 0 {
-                let last_id = sqlx::query("UPDATE hv_msg set msg_text = ? WHERE msg_type = ?")
+                let last_id = sqlx::query("UPDATE hv_msg set msg_text = ?, msg_name = 'welcome' WHERE msg_type = ?")
                     .bind(msg_text)
                     .bind(msg_type.clone() as i32)
                     .execute(&self.conn.sqlite_pool)
@@ -68,9 +69,10 @@ impl Msg {
             }
         }
 
-        sqlx::query("INSERT INTO hv_msg (msg_type, msg_text) VALUES (?, ?)")
+        sqlx::query("INSERT INTO hv_msg (msg_type, msg_text, msg_title) VALUES (?, ?, ?)")
             .bind(msg_type.clone() as i32)
             .bind(msg_text)
+            .bind(msg_title)
             .execute(&self.conn.sqlite_pool)
             .await
             .unwrap()
