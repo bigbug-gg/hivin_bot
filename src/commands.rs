@@ -1,17 +1,19 @@
+use crate::service::msg::MsgType;
+use crate::service::{msg as my_msg, polling_msg};
+use crate::service::{msg, user};
+use crate::{
+    service::{group, Db},
+    HandlerResult, MyDialogue, State,
+};
+use chrono::NaiveTime;
 use log::{error, info};
+use std::fmt::format;
+use teloxide::types::{ChatMemberStatus, InlineKeyboardButton, InlineKeyboardMarkup, Me};
 use teloxide::{
     payloads::SendMessageSetters,
     prelude::*,
     types::{ParseMode, User},
     utils::command::BotCommands,
-};
-use teloxide::types::{ChatMemberStatus, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, KeyboardMarkup, Me};
-use crate::service::msg as my_msg;
-use crate::service::msg::MsgType;
-use crate::service::{msg, user};
-use crate::{
-    service::{group, Db},
-    HandlerResult, MyDialogue, State,
 };
 
 #[derive(BotCommands, Clone)]
@@ -24,6 +26,9 @@ pub enum Command {
     #[command(description = "取消当前操作")]
     Cancel,
 
+    #[command(description = "我是谁")]
+    Whoami,
+
     // 管理员管理命令
     #[command(description = "添加新管理员")]
     AddAdmin,
@@ -33,13 +38,13 @@ pub enum Command {
 
     #[command(description = "查看管理员列表")]
     ListAdmins,
-    
+
     #[command(description = "设置欢迎语")]
     SetWelcomeMsg,
-    
+
     #[command(description = "添加添加消息")]
     AddPollingMessage,
-    
+
     #[command(description = "查看消息列表")]
     ListMessages,
 
@@ -220,22 +225,28 @@ pub async fn handle_new_members(bot: Bot, msg: Message, db: Db) -> HandlerResult
 }
 
 // 和机器人有关的，都到这里。
-pub async fn handle_my_chat_member(bot: Bot, chat_member: ChatMemberUpdated, me: Me, db: Db) -> HandlerResult {
+pub async fn handle_my_chat_member(
+    bot: Bot,
+    chat_member: ChatMemberUpdated,
+    me: Me,
+    db: Db,
+) -> HandlerResult {
     // 检查是否与机器人相关
     if chat_member.new_chat_member.user.id != me.id {
         return Ok(());
     }
 
     let chat_id = chat_member.chat.id.to_string();
-    let chat_title = chat_member.chat.title().unwrap_or("Unknown Group").to_string();
+    let chat_title = chat_member
+        .chat
+        .title()
+        .unwrap_or("Unknown Group")
+        .to_string();
     let group_service = group::new(db.clone());
 
     match chat_member.new_chat_member.status() {
         ChatMemberStatus::Left | ChatMemberStatus::Banned => {
-            info!(
-                "Bot was removed from chat {}: {}",
-                chat_id, chat_title
-            );
+            info!("Bot was removed from chat {}: {}", chat_id, chat_title);
 
             // 只进行数据库清理操作，不尝试发送消息
             match group_service.delete_group(&chat_id).await {
@@ -252,16 +263,12 @@ pub async fn handle_my_chat_member(bot: Bot, chat_member: ChatMemberUpdated, me:
         }
 
         ChatMemberStatus::Member | ChatMemberStatus::Administrator => {
-            info!(
-                "Bot was added to chat {}: {}",
-                chat_id, chat_title
-            );
+            info!("Bot was added to chat {}: {}", chat_id, chat_title);
 
             // 先尝试发送消息，确认有权限
-            let message_result = bot.send_message(
-                chat_id.clone(),
-                "Hello！\n\n/help - 查看所有命令",
-            ).await;
+            let message_result = bot
+                .send_message(chat_id.clone(), "Hello！\n\n/help - 查看所有命令")
+                .await;
 
             match message_result {
                 Ok(_) => {
@@ -273,10 +280,12 @@ pub async fn handle_my_chat_member(bot: Bot, chat_member: ChatMemberUpdated, me:
                         Err(e) => {
                             error!("Failed to add group to database: {}", e);
                             // 可以尝试发送错误消息，但要注意处理可能的错误
-                            let _ = bot.send_message(
-                                chat_id,
-                                "初始化群组设置时发生错误，请稍后重试或联系管理员。",
-                            ).await;
+                            let _ = bot
+                                .send_message(
+                                    chat_id,
+                                    "初始化群组设置时发生错误，请稍后重试或联系管理员。",
+                                )
+                                .await;
                         }
                     }
                 }
@@ -293,6 +302,8 @@ pub async fn handle_my_chat_member(bot: Bot, chat_member: ChatMemberUpdated, me:
     Ok(())
 }
 
+///
+/// Command 入口
 pub async fn answer(
     bot: Bot,
     msg: Message,
@@ -300,6 +311,7 @@ pub async fn answer(
     dialogue: MyDialogue,
     db: Db,
 ) -> HandlerResult {
+    info!("Into answer command...");
     match cmd {
         Command::Help => {
             bot.send_message(msg.chat.id, Command::descriptions().to_string())
@@ -314,7 +326,16 @@ pub async fn answer(
             dialogue.update(State::Menu).await?;
             bot.send_message(msg.chat.id, "已结束当前对话").await?;
         }
-
+        Command::Whoami => {
+            let user = msg.from.clone().unwrap();
+            let user_id = user.id;
+            let user_name = user.username.unwrap_or("有缘人".to_string());
+            bot.send_message(
+                msg.chat.id,
+                format!("Hi {}, 你的ID是:\n{}", user_name, user_id),
+            )
+            .await?;
+        }
         Command::AddAdmin => {
             let user_service = user::new(db);
             if let Some(from_user) = msg.from {
@@ -379,7 +400,7 @@ pub async fn answer(
                 bot.send_message(msg.chat.id, "请输入您要设定的欢迎语：\n")
                     .await?;
             }
-        },
+        }
         Command::AddPollingMessage => {
             let user_service = user::new(db.clone());
             if let Some(from_user) = msg.from {
@@ -388,10 +409,9 @@ pub async fn answer(
                     return Ok(());
                 }
                 dialogue.update(State::AddPollingMsg).await?;
-                bot.send_message(msg.chat.id, "第1步 先添加内容:\n")
-                    .await?;
+                bot.send_message(msg.chat.id, "第1步 先添加内容:\n").await?;
             }
-        },
+        }
 
         Command::ListMessages => {
             let user_service = user::new(db.clone());
@@ -400,7 +420,7 @@ pub async fn answer(
                     bot.send_message(msg.chat.id, MESSAGES.NOT_ADMIN).await?;
                     return Ok(());
                 }
-                
+
                 let msg_list = my_msg::new(db).all().await;
 
                 if msg_list.is_empty() {
@@ -411,7 +431,11 @@ pub async fn answer(
                         message.push_str("\n");
                         message.push_str(&format!(
                             "类型: {}\n标题：{}\n内容：\n{}\n",
-                            if msg_item.msg_type == MsgType::Polling {"定时推送"} else {"欢迎语"},
+                            if msg_item.msg_type == MsgType::Polling {
+                                "定时推送"
+                            } else {
+                                "欢迎语"
+                            },
                             msg_item.msg_title,
                             msg_item.msg_text
                         ));
@@ -432,13 +456,10 @@ pub async fn answer(
             // 创建 InlineKeyboardButton 数组
             let mut group_but: Vec<InlineKeyboardButton> = vec![];
             for i in g {
-                // callback_data 用于标识按钮回调
-                group_but.push(
-                    InlineKeyboardButton::callback(
-                        i.group_name,
-                        format!("group_{}", i.id) // 添加前缀以便在回调中识别
-                    )
-                );
+                group_but.push(InlineKeyboardButton::callback(
+                    i.group_name,
+                    format!("group_{}", i.id),
+                ));
             }
 
             // 将按钮数组包装成矩阵形式
@@ -449,7 +470,8 @@ pub async fn answer(
         }
 
         _ => {
-            bot.send_message(msg.chat.id, "Sorry, 该功能待完善...V我50，助力此功能🌚").await?;
+            bot.send_message(msg.chat.id, "Sorry, 该功能待完善...V我50，助力此功能🌚")
+                .await?;
         }
     };
 
@@ -508,13 +530,11 @@ pub async fn handle_delete_admin(
     Ok(())
 }
 
-pub async fn handle_add_polling_msg(
-    bot: Bot,
-    msg: Message,
-    dialogue: MyDialogue
-) -> HandlerResult {
+pub async fn handle_add_polling_msg(bot: Bot, msg: Message, dialogue: MyDialogue) -> HandlerResult {
     if let Some(add_msg) = msg.text() {
-        dialogue.update(State::AddPollingTitle(add_msg.to_string())).await?;
+        dialogue
+            .update(State::AddPollingTitle(add_msg.to_string()))
+            .await?;
         bot.send_message(msg.chat.id, "第2步 再设置标题:").await?;
     } else {
         bot.send_message(msg.chat.id, MESSAGES.INVALID_FORMAT)
@@ -529,21 +549,25 @@ pub async fn handle_add_polling_title(
     dialogue: MyDialogue,
     db: Db,
 ) -> HandlerResult {
-    
     let state = dialogue.get().await?.unwrap();
-    
+
     if let State::AddPollingTitle(add_msg) = state {
-        
         if let Some(msg_title) = msg.text() {
             let msg_service = msg::new(db);
-            if msg_service.add_msg(MsgType::Polling, &add_msg, msg_title).await > 0 {
+            if msg_service
+                .add_msg(MsgType::Polling, &add_msg, msg_title)
+                .await
+                > 0
+            {
                 bot.send_message(
                     msg.chat.id,
                     "新增成功，记得设置消息跟群的关联后，定时推送才生效噢",
                 )
-                    .await?;
+                .await?;
 
-                dialogue.update(State::AddPollingTitle(add_msg.to_string())).await?;
+                dialogue
+                    .update(State::AddPollingTitle(add_msg.to_string()))
+                    .await?;
             } else {
                 bot.send_message(msg.chat.id, "新增失败，请稍后再试")
                     .await?;
@@ -553,14 +577,14 @@ pub async fn handle_add_polling_title(
             bot.send_message(msg.chat.id, MESSAGES.INVALID_FORMAT)
                 .await?;
         }
-        
-    } else { 
-        bot.send_message(msg.chat.id, "状态异常，触发重置状态...").await?;
+    } else {
+        bot.send_message(msg.chat.id, "状态异常，触发重置状态...")
+            .await?;
         dialogue.update(State::Menu).await?;
         bot.send_message(msg.chat.id, "重置状态完成").await?;
-        return Ok(())
+        return Ok(());
     }
-    
+
     Ok(())
 }
 
@@ -572,7 +596,11 @@ pub async fn handle_set_welcome_msg(
 ) -> HandlerResult {
     if let Some(add_msg) = msg.text() {
         let msg_service = msg::new(db);
-        if msg_service.add_msg(MsgType::Welcome, add_msg, "welcome_msg").await > 0 {
+        if msg_service
+            .add_msg(MsgType::Welcome, add_msg, "welcome_msg")
+            .await
+            > 0
+        {
             bot.send_message(
                 msg.chat.id,
                 "设置欢迎语成功，欢迎语是在群加入新成员时发送的消息.",
@@ -596,43 +624,45 @@ pub async fn handle_invalid_command(bot: Bot, msg: Message) -> HandlerResult {
     Ok(())
 }
 
-pub async fn handle_group_but_callback_query(bot: Bot, q: CallbackQuery) -> HandlerResult {
+/// 按钮监听入口
+pub async fn handle_group_but_callback_query(
+    bot: Bot,
+    q: CallbackQuery,
+    dialogue: MyDialogue,
+    db: Db,
+) -> HandlerResult {
     info!("in handle_group_but_callback_query");
-    if let Some(data) = &q.data {
-        if data.starts_with("group_") {
-            // 提取群组 ID
-            let group_id = data.replace("group_", "");
-            show_operation_buttons(&bot, &q, &group_id).await?;
-        }
-        else if data.starts_with("settings_") {
-            handle_settings_callback(&bot, &q).await?;
-        }
-        else if data.starts_with("settings1_") {
-            handle_settings1_callback(&bot, &q).await?;
-        }
-        else if data.starts_with("settings1_") {
-            handle_settings2_callback(&bot, &q).await?;
-        }
-        else if data.starts_with("view_") {
-            handle_view_callback(&bot, &q).await?;
-        }
-        else if data.starts_with("cancel_") {
-            handle_cancel_callback(&bot, &q).await?;
-        }
-        else if data.starts_with("back_to_ops_") {
-            // 处理返回操作
-            let group_id = data.replace("back_to_ops_", "");
-            show_operation_buttons(&bot, &q, &group_id).await?;
-        }
+
+    if q.data.is_none() {
+        bot.answer_callback_query(&q.id).text("我看了一眼").await?;
+        return Ok(());
+    }
+
+    let data = q.data.as_ref().unwrap();
+    if data.starts_with("group_") {
+        let group_id = data.replace("group_", "");
+        show_group_buttons(&bot, &q, &group_id).await?;
+    } else if data.starts_with("addpush_") {
+        handle_add_group_push_callback(&bot, &q, db).await?;
+    } else if data.starts_with("pushmsg_") {
+        handle_set_push_time_callback(&bot, &q, dialogue).await?;
+    } else if data.starts_with("viewpush_") {
+        handle_view_group_callback(&bot, &q, db).await?;
+    } else if data.starts_with("deletepush_") {
+        handle_delete_group_push_callback(&bot, &q, db).await?;
+    } else if data.starts_with("cancel_") {
+        handle_cancel_callback(&bot, &q).await?;
+    } else if data.starts_with("back_to_ops_") {
+        // 处理返回操作
+        let group_id = data.replace("back_to_ops_", "");
+        show_group_buttons(&bot, &q, &group_id).await?;
     }
     Ok(())
 }
 
 // 显示操作按钮的函数
-async fn show_operation_buttons(bot: &Bot, q: &CallbackQuery, group_id: &str) -> HandlerResult {
-    bot.answer_callback_query(&q.id)
-        .text("已选择群组")
-        .await?;
+async fn show_group_buttons(bot: &Bot, q: &CallbackQuery, group_id: &str) -> HandlerResult {
+    bot.answer_callback_query(&q.id).text("已选择群组").await?;
 
     if let Some(message) = &q.message {
         let message_id = message.id();
@@ -640,183 +670,240 @@ async fn show_operation_buttons(bot: &Bot, q: &CallbackQuery, group_id: &str) ->
         // 创建操作按钮
         let keyboard = InlineKeyboardMarkup::new(vec![vec![
             InlineKeyboardButton::callback(
-                "设置",
-                format!("settings_{}_{}", group_id, message_id)
+                "添加推送",
+                format!("addpush_{}_{}", group_id, message_id),
             ),
             InlineKeyboardButton::callback(
-                "查看",
-                format!("view_{}_{}", group_id, message_id)
+                "已有推送",
+                format!("viewpush_{}_{}", group_id, message_id),
             ),
-            InlineKeyboardButton::callback(
-                "取消",
-                format!("cancel_{}_{}", group_id, message_id)
-            ),
+            InlineKeyboardButton::callback("退出", format!("cancel_{}_{}", group_id, message_id)),
         ]]);
 
         bot.edit_message_text(
             message.chat().id,
             message_id,
-            format!("已选择群组: {}\n请选择操作:", group_id)
+            format!("已选择群组: {}\n请选择操作:", group_id),
         )
-            .reply_markup(keyboard)
-            .await?;
+        .reply_markup(keyboard)
+        .await?;
     }
     Ok(())
 }
 
+//
+// 群推送,展示消息
 // 处理"设置"按钮的回调
-async fn handle_settings_callback(bot: &Bot, q: &CallbackQuery) -> HandlerResult {
-    if let Some(message) = &q.message {
-        bot.answer_callback_query(&q.id)
-            .text("进入设置...")
-            .await?;
-
-        // 从callback data中提取group_id
-        let parts: Vec<&str> = q.data.as_ref().unwrap().split('_').collect();
-        let group_id = parts[1];
-
-        // 创建设置界面的按钮，包含返回按钮
-        let keyboard = InlineKeyboardMarkup::new(vec![
-            // 这里可以添加其他设置相关的按钮
-            vec![
-                InlineKeyboardButton::callback("推送内容设置", format!("setting1_{}", group_id)),
-                InlineKeyboardButton::callback("推送时间设置", format!("setting2_{}", group_id)),
-            ],
-            // 返回按钮单独一行
-            vec![InlineKeyboardButton::callback(
-                "返回",
-                format!("back_to_ops_{}", group_id)
-            )],
-        ]);
-
-        bot.edit_message_text(
-            message.chat().id,
-            message.id(),
-            "设置页面\n请选择要修改的设置项："
-        )
-            .reply_markup(keyboard)
-            .await?;
+// 1. 展示所有的 内容 标题
+// 2. 选择其中一个
+// 3. 设置时间
+// 4. 完成当前操作
+async fn handle_add_group_push_callback(bot: &Bot, q: &CallbackQuery, db: Db) -> HandlerResult {
+    if q.message.is_none() {
+        return Ok(());
     }
+
+    bot.answer_callback_query(&q.id).text("设置消息...").await?;
+
+    let parts: Vec<&str> = q.data.as_ref().unwrap().split('_').collect();
+    let group_id = parts[1];
+
+    let message = q.message.as_ref().unwrap();
+    let all_msg = msg::new(db).all().await;
+
+    let mut keyboard_buttons: Vec<Vec<InlineKeyboardButton>> = vec![
+        // 返回按钮单独一行，放在最前面
+        vec![InlineKeyboardButton::callback(
+            "⬅️ 返回",
+            format!("back_to_ops_{}", group_id),
+        )],
+    ];
+
+    // 把 消息 设置成按钮
+    for msg_info in all_msg {
+        keyboard_buttons.push(vec![InlineKeyboardButton::callback(
+            msg_info.msg_title,
+            format!("pushmsg_{}_{}", group_id, msg_info.id,),
+        )]);
+    }
+
+    let keyboard = InlineKeyboardMarkup::new(keyboard_buttons);
+    bot.edit_message_text(
+        message.chat().id,
+        message.id(),
+        "设置页面\n请选择定时发送消息的群：",
+    )
+    .reply_markup(keyboard)
+    .await?;
+
     Ok(())
 }
 
-async fn handle_settings1_callback(bot: &Bot, q: &CallbackQuery) -> HandlerResult {
-    if let Some(message) = &q.message {
-        bot.answer_callback_query(&q.id)
-            .text("进入推送内容设置...")
-            .await?;
-
-        // 从callback data中提取group_id
-        let parts: Vec<&str> = q.data.as_ref().unwrap().split('_').collect();
-        let group_id = parts[1];
-
-        // 创建设置界面的按钮，包含返回按钮
-        let keyboard = InlineKeyboardMarkup::new(vec![
-            // 这里可以添加其他设置相关的按钮
-            vec![
-                InlineKeyboardButton::callback("推送内容设置", format!("setting1_{}", group_id)),
-                InlineKeyboardButton::callback("推送时间设置", format!("setting2_{}", group_id)),
-            ],
-            // 返回按钮单独一行
-            vec![InlineKeyboardButton::callback(
-                "返回",
-                format!("back_to_ops_{}", group_id)
-            )],
-        ]);
-
-        bot.edit_message_text(
-            message.chat().id,
-            message.id(),
-            "设置页面\n请选择要修改的设置项："
-        )
-            .reply_markup(keyboard)
-            .await?;
+///
+/// 群推送,选择消息
+async fn handle_set_push_time_callback(
+    bot: &Bot,
+    q: &CallbackQuery,
+    dialogue: MyDialogue,
+) -> HandlerResult {
+    if q.message.is_none() {
+        return Ok(());
     }
+    bot.answer_callback_query(&q.id).text("设置时间...").await?;
+
+    let parts: Vec<&str> = q.data.as_ref().unwrap().split('_').collect();
+    let group_id = parts[1];
+    let msg_id = parts[2];
+
+    let message = q.message.as_ref().unwrap();
+
+    dialogue
+        .update(State::GroupPush {
+            msg_id: msg_id.to_string(),
+            group_id: group_id.to_string(),
+        })
+        .await?;
+    bot.send_message(message.chat().id, "请输入推送时间，格式 HH:MM, 如 08:20\n")
+        .await?;
     Ok(())
 }
 
-async fn handle_settings2_callback(bot: &Bot, q: &CallbackQuery) -> HandlerResult {
-    if let Some(message) = &q.message {
-        bot.answer_callback_query(&q.id)
-            .text("进入设置...")
+///
+/// 群推送,设置时间
+pub async fn handle_group_push_callback(
+    bot: Bot,
+    msg: Message,
+    dialogue: MyDialogue,
+    db: Db,
+) -> HandlerResult {
+    let time_str = msg.text();
+    if time_str.is_none() {
+        bot.send_message(msg.chat.id, "请输入时间，格式为 HH:MM, 例如: 08:20\n")
             .await?;
-
-        // 从callback data中提取group_id
-        let parts: Vec<&str> = q.data.as_ref().unwrap().split('_').collect();
-        let group_id = parts[1];
-
-        // 创建设置界面的按钮，包含返回按钮
-        let keyboard = InlineKeyboardMarkup::new(vec![
-            // 这里可以添加其他设置相关的按钮
-            vec![
-                InlineKeyboardButton::callback("推送内容设置", format!("setting1_{}", group_id)),
-                InlineKeyboardButton::callback("推送时间设置", format!("setting2_{}", group_id)),
-            ],
-            // 返回按钮单独一行
-            vec![InlineKeyboardButton::callback(
-                "返回",
-                format!("back_to_ops_{}", group_id)
-            )],
-        ]);
-
-        bot.edit_message_text(
-            message.chat().id,
-            message.id(),
-            "设置页面\n请选择要修改的设置项："
-        )
-            .reply_markup(keyboard)
-            .await?;
+        return Ok(());
     }
+    let time_str = time_str.unwrap();
+    let time_ok = match NaiveTime::parse_from_str(&time_str, "%H:%M") {
+        Ok(_) => true,
+        Err(_) => false,
+    };
+
+    if !time_ok {
+        bot.send_message(msg.chat.id, "请输入时间错误，格式为 HH:MM, 例如: 08:20\n")
+            .await?;
+        return Ok(());
+    }
+
+    let state = dialogue.get().await?.unwrap();
+    match state {
+        State::GroupPush { group_id, msg_id } => {
+            let polling_ser = polling_msg::new(db);
+            let insert_id = polling_ser
+                .add_polling_msg(msg_id.parse().unwrap(), &group_id, time_str)
+                .await?;
+            bot.send_message(
+                msg.chat.id,
+                if insert_id > 0 {
+                    "设置成功"
+                } else {
+                    "设置失败"
+                },
+            )
+            .await?;
+        }
+        _ => {
+            bot.send_message(msg.chat.id, "状态异常，触发重置状态...")
+                .await?;
+            bot.send_message(msg.chat.id, "重置状态完成").await?;
+        }
+    }
+    dialogue.update(State::Menu).await?;
     Ok(())
 }
 
-// 处理"查看"按钮的回调
-async fn handle_view_callback(bot: &Bot, q: &CallbackQuery) -> HandlerResult {
-    if let Some(message) = &q.message {
-        bot.answer_callback_query(&q.id)
-            .text("正在查看...")
-            .await?;
-
-        let parts: Vec<&str> = q.data.as_ref().unwrap().split('_').collect();
-        let group_id = parts[1];
-
-        // 创建查看界面的按钮，包含返回按钮
-        let keyboard = InlineKeyboardMarkup::new(vec![
-            // 这里可以添加其他查看相关的按钮
-            vec![
-                InlineKeyboardButton::callback("详细信息", format!("details_{}", group_id)),
-                InlineKeyboardButton::callback("统计数据", format!("stats_{}", group_id)),
-            ],
-            // 返回按钮
-            vec![InlineKeyboardButton::callback(
-                "返回",
-                format!("back_to_ops_{}", group_id)
-            )],
-        ]);
-
-        bot.edit_message_text(
-            message.chat().id,
-            message.id(),
-            "查看页面\n请选择要查看的内容："
-        )
-            .reply_markup(keyboard)
-            .await?;
+/// 群推送，查看已有推送
+async fn handle_view_group_callback(bot: &Bot, q: &CallbackQuery, db: Db) -> HandlerResult {
+    if q.message.is_none() {
+        return Ok(());
     }
+
+    bot.answer_callback_query(&q.id)
+        .text("查看已设置推送...")
+        .await?;
+
+    let parts: Vec<&str> = q.data.as_ref().unwrap().split('_').collect();
+    let group_id = parts[1];
+
+    let message = q.message.as_ref().unwrap();
+    let all_push = polling_msg::new(db).get_group_msgs(group_id).await?;
+
+    let mut keyboard_buttons: Vec<Vec<InlineKeyboardButton>> = vec![
+        // 返回按钮单独一行，放在最前面
+        vec![InlineKeyboardButton::callback(
+            "⬅️ 返回",
+            format!("back_to_ops_{}", group_id),
+        )],
+    ];
+    
+    for push_info in all_push {
+        keyboard_buttons.push(vec![InlineKeyboardButton::callback(
+            format!("{}-{}", push_info.send_time, push_info.msg_title),
+            format!("deletepush_{}_{}", group_id, push_info.id,),
+        )]);
+    }
+
+    let keyboard = InlineKeyboardMarkup::new(keyboard_buttons);
+    bot.edit_message_text(
+        message.chat().id,
+        message.id(),
+        "已有推送\n点击可删除对应推送：",
+    )
+    .reply_markup(keyboard)
+    .await?;
+    Ok(())
+}
+
+/// 群推送，删除已有推送
+async fn handle_delete_group_push_callback(bot: &Bot, q: &CallbackQuery, db: Db) -> HandlerResult {
+    if q.message.is_none() {
+        return Ok(());
+    }
+
+    bot.answer_callback_query(&q.id)
+        .text("查看已设置推送...")
+        .await?;
+
+    let parts: Vec<&str> = q.data.as_ref().unwrap().split('_').collect();
+    let group_id = parts[1];
+    let push_id = parts[2];
+
+    let message = q.message.as_ref().unwrap();
+    let is_ok = polling_msg::new(db)
+        .delete_polling_msg_by_id(push_id.parse().unwrap())
+        .await?;
+
+    bot.edit_message_text(
+        message.chat().id,
+        message.id(),
+        if is_ok {
+            "删除成功"
+        } else {
+            "删除失败"
+        },
+    )
+    .await?;
+    
+    show_group_buttons(&bot, &q, &group_id).await?;
     Ok(())
 }
 
 // 处理"取消"按钮的回调
 async fn handle_cancel_callback(bot: &Bot, q: &CallbackQuery) -> HandlerResult {
     if let Some(message) = &q.message {
-        bot.answer_callback_query(&q.id)
-            .text("已取消")
-            .await?;
+        bot.answer_callback_query(&q.id).text("已取消").await?;
 
-        bot.edit_message_text(
-            message.chat().id,
-            message.id(),
-            "操作已取消"
-        ).await?;
+        bot.edit_message_text(message.chat().id, message.id(), "操作已取消")
+            .await?;
     }
     Ok(())
 }
