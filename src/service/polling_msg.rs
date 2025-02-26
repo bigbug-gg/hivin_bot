@@ -65,11 +65,12 @@ impl PollingMsgDb {
     pub async fn get_group_msgs(&self, group_id: &str) -> Result<Vec<PollingMsg>> {
         let msgs = sqlx::query(
             r#"
-            SELECT pm.id, pm.hv_msg_id, pm.group_id, pm.send_time, 
+            SELECT pm.id, pm.hv_msg_id, g.group_id, pm.send_time, 
                    m.msg_text, m.msg_type, m.msg_title
             FROM hv_polling_msg pm
             JOIN hv_msg m ON pm.hv_msg_id = m.id
-            WHERE pm.group_id = ?
+            JOIN hv_group g ON pm.group_id = g.id
+            WHERE hgp.group_id = ?
             "#,
         )
         .bind(group_id)
@@ -96,10 +97,11 @@ impl PollingMsgDb {
     ) -> Result<Option<PollingMsg>> {
         let msg = sqlx::query(
             r#"
-            SELECT pm.id, pm.hv_msg_id, pm.group_id, pm.send_time,
+            SELECT pm.id, pm.hv_msg_id, g.group_id, pm.send_time,
                    m.msg_text, m.msg_type,m.msg_title
             FROM hv_polling_msg pm
             JOIN hv_msg m ON pm.hv_msg_id = m.id
+        JOIN hv_group g ON pm.group_id = g.id
             WHERE pm.group_id = ? AND pm.send_time = ?
             "#,
         )
@@ -126,10 +128,11 @@ impl PollingMsgDb {
     ) -> Result<Vec<PollingMsg>> {
         let msgs = sqlx::query(
             r#"
-        SELECT pm.id, pm.hv_msg_id, pm.group_id, pm.send_time,
+        SELECT pm.id, pm.hv_msg_id, g.group_id, pm.send_time,
                m.msg_text, m.msg_type, m.msg_title
         FROM hv_polling_msg pm
         JOIN hv_msg m ON pm.hv_msg_id = m.id
+        JOIN hv_group g ON pm.group_id = g.id
         WHERE pm.send_time = ?
         "#,
         )

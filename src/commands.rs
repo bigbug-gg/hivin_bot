@@ -1,3 +1,4 @@
+use crate::commands::ChatMemberStatus::Banned;
 use crate::service::msg::MsgType;
 use crate::service::{msg as my_msg, polling_msg};
 use crate::service::{msg, user};
@@ -7,14 +8,16 @@ use crate::{
 };
 use chrono::NaiveTime;
 use log::{error, info};
-use std::fmt::format;
-use teloxide::types::{ChatMemberStatus, InlineKeyboardButton, InlineKeyboardMarkup, Me};
 use teloxide::{
     payloads::SendMessageSetters,
     prelude::*,
-    types::{ParseMode, User},
+    types::{
+        ChatMember, ChatMemberStatus, InlineKeyboardButton, InlineKeyboardMarkup, Me, ParseMode,
+        User,
+    },
     utils::command::BotCommands,
 };
+use teloxide::types::ChatMemberKind;
 
 #[derive(BotCommands, Clone)]
 #[command(rename_rule = "lowercase", description = "支持以下命令:")]
@@ -50,12 +53,6 @@ pub enum Command {
 
     #[command(description = "已加入的群")]
     Group,
-
-    // 消息管理命令
-    #[command(description = "设置定时消息")]
-    SetMessage,
-    #[command(description = "查看当前消息设置")]
-    ViewSettings,
 }
 
 const MESSAGES: Messages = Messages {
@@ -296,6 +293,58 @@ pub async fn handle_my_chat_member(
         }
         _ => {
             info!("Unhandled chat member status update");
+        }
+    }
+
+    Ok(())
+}
+
+pub async fn handle_member_update(bot: Bot, member_update: ChatMemberUpdated, db: Db) -> HandlerResult {
+    let chat_id = member_update.chat.id;
+    
+    let user = member_update.from;
+    match member_update.new_chat_member.kind {
+        ChatMemberKind::Owner(_) => {
+            bot.send_message(
+                chat_id,
+                format!("{} 是群主", user.full_name()),
+            ).await?;
+        },
+
+        ChatMemberKind::Administrator(_) => {
+            bot.send_message(
+                chat_id,
+                format!("{} 成为管理员", user.full_name()),
+            ).await?;
+        },
+
+        ChatMemberKind::Member => {
+            let welcome = msg::new(db).welcome_msg().await;
+            bot.send_message(
+                chat_id,
+                welcome
+            ).await?;
+        },
+
+        ChatMemberKind::Restricted(restricted) => {
+            bot.send_message(
+                chat_id,
+                format!("{} 被限制", user.full_name()),
+            ).await?;
+        },
+
+        ChatMemberKind::Left => {
+            bot.send_message(
+                chat_id,
+                "成员离开群组"
+            ).await?;
+        },
+
+        ChatMemberKind::Banned(banned) => {
+            bot.send_message(
+                chat_id,
+                format!("{} 被封禁", user.full_name())
+            ).await?;
         }
     }
 
@@ -827,10 +876,6 @@ async fn handle_view_group_callback(bot: &Bot, q: &CallbackQuery, db: Db) -> Han
         return Ok(());
     }
 
-    bot.answer_callback_query(&q.id)
-        .text("查看已设置推送...")
-        .await?;
-
     let parts: Vec<&str> = q.data.as_ref().unwrap().split('_').collect();
     let group_id = parts[1];
 
@@ -844,7 +889,7 @@ async fn handle_view_group_callback(bot: &Bot, q: &CallbackQuery, db: Db) -> Han
             format!("back_to_ops_{}", group_id),
         )],
     ];
-    
+
     for push_info in all_push {
         keyboard_buttons.push(vec![InlineKeyboardButton::callback(
             format!("{}-{}", push_info.send_time, push_info.msg_title),
@@ -869,16 +914,12 @@ async fn handle_delete_group_push_callback(bot: &Bot, q: &CallbackQuery, db: Db)
         return Ok(());
     }
 
-    bot.answer_callback_query(&q.id)
-        .text("查看已设置推送...")
-        .await?;
-
     let parts: Vec<&str> = q.data.as_ref().unwrap().split('_').collect();
     let group_id = parts[1];
     let push_id = parts[2];
 
     let message = q.message.as_ref().unwrap();
-    let is_ok = polling_msg::new(db)
+    let is_ok = polling_msg::new(db.clone())
         .delete_polling_msg_by_id(push_id.parse().unwrap())
         .await?;
 
@@ -892,8 +933,8 @@ async fn handle_delete_group_push_callback(bot: &Bot, q: &CallbackQuery, db: Db)
         },
     )
     .await?;
-    
-    show_group_buttons(&bot, &q, &group_id).await?;
+
+    handle_view_group_callback(&bot, &q, db).await?;
     Ok(())
 }
 

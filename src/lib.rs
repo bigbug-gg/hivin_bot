@@ -3,7 +3,6 @@ use chrono::Local;
 use log::info;
 use serde::{Deserialize, Serialize};
 use std::panic;
-use chrono::format::parse;
 use teloxide::dispatching::dialogue::serializer::Json;
 use teloxide::dispatching::dialogue::{ErasedStorage, SqliteStorage, Storage};
 use teloxide::dispatching::Dispatcher;
@@ -121,18 +120,16 @@ async fn poll_task(bot: &Bot, db: Db) -> Result<(), Box<dyn std::error::Error + 
     }
 
     let push_data = push_data?;
-
-    // 假设有这个方法获取所有群组
     for push_msg in push_data {
-        let group_id = format!("-{}", push_msg.group_id);
-        let chat_id = ChatId(group_id.parse().unwrap());
-        bot.send_message(chat_id, push_msg.msg_text)
+        let group_id: i64 = push_msg.group_id.parse()?;
+        info!("Push group_id is: {:?}", push_msg);
+        bot.send_message(ChatId(group_id), push_msg.msg_text)
             .parse_mode(ParseMode::MarkdownV2)
             .await?;
 
         info!(
             "Successfully sent message to group {} at {}",
-            chat_id, current_time
+            group_id, current_time
         );
     }
     Ok(())

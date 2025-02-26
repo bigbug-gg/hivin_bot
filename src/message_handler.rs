@@ -1,4 +1,4 @@
-use crate::commands::{handle_group_but_callback_query, handle_my_chat_member};
+use crate::commands::{handle_group_but_callback_query, handle_member_update, handle_my_chat_member};
 use crate::{commands, State};
 use teloxide::dispatching::dialogue::ErasedStorage;
 use teloxide::dptree::case;
@@ -30,15 +30,11 @@ pub fn create_handler() -> UpdateHandler<Box<dyn std::error::Error + Send + Sync
             case![State::GroupPush { msg_id, group_id }]
                 .endpoint(commands::handle_group_push_callback),
         )
-        // .branch(case![State::InputTime].endpoint(commands::handle_input_time))
-        // .branch(case![State::ConfirmMsg].endpoint(commands::handle_confirm_msg))
-        //
-        // // 查看设置状态处理
-        // .branch(case![State::ViewSettings].endpoint(commands::handle_view_settings))
         // 菜单状态处理
         .branch(case![State::Menu].endpoint(commands::handle_invalid_command));
 
     dptree::entry()
+        .branch(Update::filter_chat_member().endpoint(handle_member_update))
         .branch(Update::filter_my_chat_member().endpoint(handle_my_chat_member))
         .branch(
             Update::filter_callback_query()
