@@ -70,7 +70,7 @@ impl PollingMsgDb {
             FROM hv_polling_msg pm
             JOIN hv_msg m ON pm.hv_msg_id = m.id
             JOIN hv_group g ON pm.group_id = g.id
-            WHERE hgp.group_id = ?
+            WHERE g.group_id = ?
             "#,
         )
         .bind(group_id)

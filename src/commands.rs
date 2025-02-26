@@ -301,7 +301,7 @@ pub async fn handle_my_chat_member(
 
 pub async fn handle_member_update(bot: Bot, member_update: ChatMemberUpdated, db: Db) -> HandlerResult {
     let chat_id = member_update.chat.id;
-    
+
     let user = member_update.from;
     match member_update.new_chat_member.kind {
         ChatMemberKind::Owner(_) => {
@@ -503,16 +503,16 @@ pub async fn answer(
             }
 
             // 创建 InlineKeyboardButton 数组
-            let mut group_but: Vec<InlineKeyboardButton> = vec![];
+            let mut group_but: Vec<Vec<InlineKeyboardButton>> = vec![];
             for i in g {
-                group_but.push(InlineKeyboardButton::callback(
+                group_but.push(vec![InlineKeyboardButton::callback(
                     i.group_name,
                     format!("group_{}", i.id),
-                ));
+                )]);
             }
 
             // 将按钮数组包装成矩阵形式
-            let keyboard = InlineKeyboardMarkup::new(vec![group_but]);
+            let keyboard = InlineKeyboardMarkup::new(group_but);
             bot.send_message(msg.chat.id, "所有群\n")
                 .reply_markup(keyboard)
                 .await?;
