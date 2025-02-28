@@ -6,6 +6,7 @@ use teloxide::payloads::{AnswerCallbackQuerySetters, EditMessageTextSetters};
 use teloxide::prelude::{Message, Requester};
 use teloxide::types::{CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup};
 use teloxide::Bot;
+use crate::my_handler::admin_callback::all_admin;
 
 /// Query enter
 pub async fn enter(bot: Bot, q: CallbackQuery, dialogue: MainDialogue, db: Db) -> HandlerResult {
@@ -36,6 +37,15 @@ pub async fn enter(bot: Bot, q: CallbackQuery, dialogue: MainDialogue, db: Db) -
             show_msg_list(&bot, &q, &dialogue,db, group_id).await?;
         }
 
+        // Admin list
+        ["managers"] => {
+            all_admin(&bot, &q, &db).await?;
+        },
+
+        // add new
+        ["newly", "added"] => {
+
+        }
         _ => {
             bot
                 .answer_callback_query(q.id)

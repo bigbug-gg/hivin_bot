@@ -23,35 +23,7 @@ pub async fn enter(
                 "Choose action",
             ).reply_markup(admin_menu()).await?;
         }
-        
-        // 废弃 功能合并到 admin
-        AdminCommand::AddAdmin => {
-            let user_service = user::new(db);
-            if let Some(from_user) = msg.from {
-                if !user_service.is_admin(&from_user.id.to_string()).await {
-                    bot.send_message(msg.chat.id, MESSAGES.NOT_ADMIN).await?;
-                    return Ok(());
-                }
 
-                dialogue.update(State::Admin).await?;
-                bot.send_message(msg.chat.id, MESSAGES.ADD_ADMIN_PROMPT)
-                    .await?;
-            }
-        }
-        // 废弃：功能合并到 admin
-        AdminCommand::DeleteAdmin => {
-            let user_service = user::new(db);
-            if let Some(from_user) = msg.from {
-                if !user_service.is_admin(&from_user.id.to_string()).await {
-                    bot.send_message(msg.chat.id, MESSAGES.NOT_ADMIN).await?;
-                    return Ok(());
-                }
-                dialogue.update(State::DeleteAdmin).await?;
-                bot.send_message(msg.chat.id, MESSAGES.REMOVE_ADMIN_PROMPT)
-                    .await?;
-            }
-        }
-       
         AdminCommand::HiMsg => {
             let user_service = user::new(db.clone());
             if let Some(from_user) = msg.from {
@@ -143,8 +115,8 @@ fn admin_menu() -> InlineKeyboardMarkup {
     let admin_button = vec![
         ("👨‍💼 Managers", "managers"),
         ("🆕 Newly Added", "newly_added")];
-    let admin_button: Vec<Vec<InlineKeyboardButton>> = admin_button.into_iter().map(|(button_name, button_call_back)| {
-       vec![InlineKeyboardButton::callback(button_name, button_call_back)]
+    let admin_button: Vec<InlineKeyboardButton> = admin_button.into_iter().map(|(button_name, button_call_back)| {
+        InlineKeyboardButton::callback(button_name, button_call_back)
     }).collect();
-    InlineKeyboardMarkup::new(admin_button)
+    InlineKeyboardMarkup::new(vec![admin_button])
 }

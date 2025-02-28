@@ -43,14 +43,6 @@ pub enum Command {
 #[command(rename_rule = "lowercase", description = "Commands:")]
 pub enum AdminCommand{
     // 管理员管理命令
-    /// todo: update the function add_admin to the admins module inside.
-    #[command(description = "➕ Add admin")]
-    AddAdmin,
-
-    /// todo: update the function delete_admin to the admins module inside.
-    #[command(description = "➖ Remove admin")]
-    DeleteAdmin,
-    
     // 当前管理， 添加管理
     #[command(description = "📋 Admin list")]
     Admins,
@@ -117,54 +109,14 @@ async fn handle_existing_admin(
     Ok(())
 }
 
-#[deprecated]
-pub async fn handle_new_members(bot: Bot, msg: Message, db: Db) -> HandlerResult {
-    if let Some(new_members) = msg.new_chat_members() {
-        for member in new_members {
-            if member.is_bot && member.id == bot.get_me().await?.id {
-                // 机器人被添加到群组
-                let chat_id = msg.chat.id.to_string();
-                let chat_title = msg.chat.title().unwrap_or("Unknown Group").to_string();
-
-                info!("Bot was added to group: {} (ID: {})", chat_title, chat_id);
-
-                // 将群组信息保存到数据库
-                let group_service = group::new(db.clone());
-                match group_service.add_group(&chat_id, &chat_title).await {
-                    Ok(_) => {
-                        log::info!("Successfully added group to database");
-
-                        // 发送欢迎消息
-                        bot.send_message(
-                            msg.chat.id,
-                            "感谢添加我到群组！\n\n\
-                            /help - 查看所有命令",
-                        )
-                        .await?;
-                    }
-                    Err(e) => {
-                        log::error!("Failed to add group to database: {}", e);
-                        bot.send_message(
-                            msg.chat.id,
-                            "初始化群组设置时发生错误，请稍后重试或联系管理员。",
-                        )
-                        .await?;
-                    }
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
-// 和机器人有关的，都到这里。
+// Group event trigger only belong user can work.
 pub async fn handle_my_chat_member(
     bot: Bot,
     chat_member: ChatMemberUpdated,
     me: Me,
     db: Db,
 ) -> HandlerResult {
-    // 检查是否与机器人相关
+
     if chat_member.new_chat_member.user.id != me.id {
         return Ok(());
     }
@@ -181,7 +133,7 @@ pub async fn handle_my_chat_member(
         ChatMemberStatus::Left | ChatMemberStatus::Banned => {
             info!("Bot was removed from chat {}: {}", chat_id, chat_title);
 
-            // 只进行数据库清理操作，不尝试发送消息
+            // delete database info only
             match group_service.delete_group(&chat_id).await {
                 Ok(true) => {
                     info!("{} was removed from bot database", chat_title);
