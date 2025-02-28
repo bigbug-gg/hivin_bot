@@ -50,6 +50,17 @@ impl PollingMsgDb {
 
         Ok(result.rows_affected() > 0)
     }
+    
+  
+    /// Delete the group msg by the msg id
+    /// When deleting the msg call this function first for the data to keep clean.
+    pub async fn delete_by_msg_id(&self, msg_id: i64) -> Result<bool> {
+        let result = sqlx::query("DELETE FROM hv_polling_msg WHERE msg_id = ?")
+        .bind(msg_id)
+            .execute(&self.conn.sqlite_pool)
+            .await?.rows_affected();
+        Ok(result > 0)
+    }
 
     // 删除单条关联消息
     pub async fn delete_polling_msg_by_id(&self, id: i64) -> Result<bool> {

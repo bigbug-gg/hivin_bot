@@ -12,43 +12,56 @@ use teloxide::types::{ChatId, ParseMode};
 use teloxide::{dptree, Bot};
 
 pub mod commands;
-pub mod message_handler;
+pub mod my_handler;
+
 pub mod service;
 
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub enum State {
     #[default]
     Menu,
-    // 管理员管理相关状态
-    AddAdmin,    // 等待输入要添加的管理员ID
-    DeleteAdmin, // 等待输入要删除的管理员ID
 
-    // 消息管理相关状态
-    AddPollingMsg,           // 添加定时消息内容
-    AddPollingTitle(String), // 设置标题
-    SetWelcomeMsg,           // 设置欢迎语
+    // Admin module
+    Admin,
+    DeleteAdmin,
+    AdminChoose(i64),
+    AdminDelete(i64),
+    AdminRename(i64, String),
 
-    // 群
+    // Message module
+    AddPollingMsg,           // add the message for poll push.
+    AddPollingTitle(String), // add the title for the message.
+    SetWelcomeMsg,           // Set the group message when a new user joins and send this.
+
+    // Group module
+    Group,
+    GroupChoose{group_db_id: i64},
+    GroupPushMsg{group_db_id: i64, msg_db_id: i64},
+    GroupPushTime,
+
+    // 这个作废
     GroupPush {
         msg_id: String,
         group_id: String,
-    }, // 设置消息发送时间
+    }, // Set datetime for the group message push.
 }
 
-type MyDialogue = Dialogue<State, ErasedStorage<State>>;
-type MyStorage = std::sync::Arc<ErasedStorage<State>>;
+type MainDialogue = Dialogue<State, ErasedStorage<State>>;
+
+type MainStorage = std::sync::Arc<ErasedStorage<State>>;
+
 type HandlerResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
 pub async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // 环境变量和日志初始化
     dotenv::dotenv()
         .map_err(|e| log::error!("Failed to load .env file: {}", e))
         .ok();
 
     pretty_env_logger::init();
+
     info!("Starting Telegram bot...");
 
-    // 设置 panic hook
+    // Panic hook
     panic::set_hook(Box::new(|panic_info| {
         log::error!("Thread panic: {:?}", panic_info);
     }));
@@ -67,21 +80,21 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 Ok(_) => log::info!("Poll task completed successfully"),
                 Err(e) => log::error!("Poll task error: {:?}", e),
             }
-            // 等待1分钟
+            // Waiting 1 minute
             tokio::time::sleep(std::time::Duration::from_secs(60)).await;
         }
     });
-    // 在新线程中运行主要逻辑
+
     let main_handle = tokio::spawn(async move {
-        let storage: MyStorage = SqliteStorage::open("hivin_db.sqlite", Json)
+        let storage: MainStorage = SqliteStorage::open("hivin_db.sqlite", Json)
             .await
             .map_err(|e| format!("Failed to open SQLite storage: {}", e))?
             .erase();
 
-        let handler = message_handler::create_handler();
+        let create_handler = my_handler::create();
 
         info!("Message handler created...");
-        Dispatcher::builder(bot_clone, handler)
+        Dispatcher::builder(bot_clone, create_handler)
             .dependencies(dptree::deps![storage, db_main])
             .enable_ctrlc_handler()
             .build()
@@ -90,7 +103,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
     });
 
-    // 等待两个任务
+    // Tokio select! controls the thread.
     tokio::select! {
         result = poll_handle => {
             log::error!("Poll task ended: {:?}", result);
@@ -105,6 +118,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 }
 
+// Polling thread enter
 async fn poll_task(bot: &Bot, db: Db) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     info!("Executing poll task...");
     // 获取当前时间，格式化为 HH:mm

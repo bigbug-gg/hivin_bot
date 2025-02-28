@@ -1,8 +1,9 @@
-use crate::service::Db;
+use crate::service::{polling_msg, Db};
 use chrono::Utc;
 use sqlx::Row;
 use std::cmp::PartialEq;
 use std::fmt::Debug;
+use anyhow::Result;
 
 pub struct Msg {
     conn: Db,
@@ -78,13 +79,19 @@ impl Msg {
             .unwrap()
             .last_insert_rowid()
     }
-
-    pub async fn remove_msg(&self, id: i64) {
-        sqlx::query("DELETE FROM hv_msg WHERE id = ?")
-            .bind(id)
+    
+    /// Remove msg by the id
+    /// 1. deleting polling data if you use this msg
+    /// 2. to delete msg.
+    pub async fn remove_msg(&self, msg_id: i64) -> Result<bool>{
+        polling_msg::new(self.conn.clone()).delete_by_msg_id(msg_id).await?;
+        
+        let result_rows = sqlx::query("DELETE FROM hv_msg WHERE id = ?")
+            .bind(msg_id)
             .execute(&self.conn.sqlite_pool)
             .await
-            .unwrap();
+            ?.rows_affected();
+        Ok(result_rows > 0 )
     }
 
     pub async fn edit_msg(&self, id: i64, msg_text: &str) -> bool {

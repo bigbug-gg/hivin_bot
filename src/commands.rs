@@ -1,60 +1,75 @@
-use crate::commands::ChatMemberStatus::Banned;
+pub mod answer;
+pub mod start_command;
+
+#[deprecated]
+
 use crate::service::msg::MsgType;
-use crate::service::{msg as my_msg, polling_msg};
-use crate::service::{msg, user};
+use crate::service::{msg, user, polling_msg};
 use crate::{
     service::{group, Db},
-    HandlerResult, MyDialogue, State,
+    HandlerResult, MainDialogue, State,
 };
 use chrono::NaiveTime;
 use log::{error, info};
 use teloxide::{
-    payloads::SendMessageSetters,
     prelude::*,
     types::{
-        ChatMember, ChatMemberStatus, InlineKeyboardButton, InlineKeyboardMarkup, Me, ParseMode,
+        ChatMemberStatus, InlineKeyboardButton, InlineKeyboardMarkup, Me, ParseMode,
         User,
     },
     utils::command::BotCommands,
 };
 use teloxide::types::ChatMemberKind;
 
+/// Default command
 #[derive(BotCommands, Clone)]
-#[command(rename_rule = "lowercase", description = "支持以下命令:")]
+#[command(rename_rule = "lowercase", description = "Commands:")]
 pub enum Command {
-    #[command(description = "显示此帮助信息")]
+    #[command(description = "Help")]
     Help,
-    #[command(description = "开始使用")]
+    
+    #[command(description = "Start")]
     Start,
-    #[command(description = "取消当前操作")]
+    
+    #[command(description = "Cancel")]
     Cancel,
-
-    #[command(description = "我是谁")]
+    
+    #[command(description = "Who am i?")]
     Whoami,
+}
 
+/// Admin command
+#[derive(BotCommands, Clone)]
+#[command(rename_rule = "lowercase", description = "Commands:")]
+pub enum AdminCommand{
     // 管理员管理命令
-    #[command(description = "添加新管理员")]
+    /// todo: update the function add_admin to the admins module inside.
+    #[command(description = "➕ Add admin")]
     AddAdmin,
 
-    #[command(description = "删除现有管理员")]
+    /// todo: update the function delete_admin to the admins module inside.
+    #[command(description = "➖ Remove admin")]
     DeleteAdmin,
+    
+    // 当前管理， 添加管理
+    #[command(description = "📋 Admin list")]
+    Admins,
 
-    #[command(description = "查看管理员列表")]
-    ListAdmins,
+    #[command(description = "✨ Welcome")]
+    HiMsg,
 
-    #[command(description = "设置欢迎语")]
-    SetWelcomeMsg,
+    #[command(description = "📝 Add msg")]
+    PollMsg,
 
-    #[command(description = "添加添加消息")]
-    AddPollingMessage,
+    /// todo: Need more function control Msg module.
+    #[command(description = "📜 Messages")]
+    Msg,
 
-    #[command(description = "查看消息列表")]
-    ListMessages,
-
-    #[command(description = "已加入的群")]
+    #[command(description = "👥 Groups")]
     Group,
 }
 
+/// Todo: Delete the const string and change it another way.
 const MESSAGES: Messages = Messages {
     WELCOME_ADMIN: "欢迎使用! 您已被设置为管理员。\n使用 /help 查看所有命令",
     WELCOME_BACK: "欢迎回来! 使用 /help 查看所有命令",
@@ -85,89 +100,10 @@ struct Messages {
     NO_ADMINS: &'static str,
 }
 
-async fn handle_start_command(
-    bot: Bot,
-    msg: Message,
-    dialogue: MyDialogue,
-    user_service: user::User,
-) -> HandlerResult {
-    match msg.from.clone() {
-        Some(user_info) => {
-            handle_user_start(bot, msg.chat.id, dialogue, user_service, user_info).await
-        }
-        None => {
-            bot.send_message(msg.chat.id, MESSAGES.INVALID_USER).await?;
-            Ok(())
-        }
-    }
-}
-
-async fn handle_user_start(
-    bot: Bot,
-    chat_id: ChatId,
-    dialogue: MyDialogue,
-    user_service: user::User,
-    user_info: User,
-) -> HandlerResult {
-    let display_name = user_info
-        .username
-        .clone()
-        .unwrap_or_else(|| user_info.first_name.clone());
-
-    if !user_service.has_admin().await {
-        handle_first_admin(
-            bot,
-            chat_id,
-            dialogue,
-            user_service,
-            &user_info.id.to_string(),
-            &display_name,
-        )
-        .await
-    } else {
-        handle_existing_admin(
-            bot,
-            chat_id,
-            dialogue,
-            user_service,
-            &user_info.id.to_string(),
-        )
-        .await
-    }
-}
-
-async fn handle_first_admin(
-    bot: Bot,
-    chat_id: ChatId,
-    dialogue: MyDialogue,
-    user_service: user::User,
-    user_id: &str,
-    display_name: &str,
-) -> HandlerResult {
-    info!("Setting first admin: User ID {}", user_id);
-
-    match user_service.add_admin(user_id, display_name).await {
-        true => {
-            info!("Successfully set first admin: {}", user_id);
-            dialogue.update(State::Menu).await?;
-            bot.send_message(
-                chat_id,
-                "欢迎使用! 您已被设置为管理员。\n使用 /help 查看所有命令",
-            )
-            .await?;
-        }
-        false => {
-            error!("Failed to set first admin: {}", user_id);
-            bot.send_message(chat_id, MESSAGES.ADMIN_SET_FAILED).await?;
-        }
-    }
-    Ok(())
-}
-
 async fn handle_existing_admin(
     bot: Bot,
     chat_id: ChatId,
-    dialogue: MyDialogue,
+    dialogue: MainDialogue,
     user_service: user::User,
     user_id: &str,
 ) -> HandlerResult {
@@ -351,186 +287,10 @@ pub async fn handle_member_update(bot: Bot, member_update: ChatMemberUpdated, db
     Ok(())
 }
 
-///
-/// Command 入口
-pub async fn answer(
-    bot: Bot,
-    msg: Message,
-    cmd: Command,
-    dialogue: MyDialogue,
-    db: Db,
-) -> HandlerResult {
-    info!("Into answer command...");
-    match cmd {
-        Command::Help => {
-            bot.send_message(msg.chat.id, Command::descriptions().to_string())
-                .parse_mode(ParseMode::Html)
-                .await?;
-        }
-        Command::Start => {
-            let user_service = user::new(db);
-            handle_start_command(bot, msg, dialogue, user_service).await?;
-        }
-        Command::Cancel => {
-            dialogue.update(State::Menu).await?;
-            bot.send_message(msg.chat.id, "已结束当前对话").await?;
-        }
-        Command::Whoami => {
-            let user = msg.from.clone().unwrap();
-            let user_id = user.id;
-            let user_name = user.username.unwrap_or("有缘人".to_string());
-            bot.send_message(
-                msg.chat.id,
-                format!("Hi {}, 你的ID是:\n{}", user_name, user_id),
-            )
-            .await?;
-        }
-        Command::AddAdmin => {
-            let user_service = user::new(db);
-            if let Some(from_user) = msg.from {
-                if !user_service.is_admin(&from_user.id.to_string()).await {
-                    bot.send_message(msg.chat.id, MESSAGES.NOT_ADMIN).await?;
-                    return Ok(());
-                }
-
-                dialogue.update(State::AddAdmin).await?;
-                bot.send_message(msg.chat.id, MESSAGES.ADD_ADMIN_PROMPT)
-                    .await?;
-            }
-        }
-
-        Command::DeleteAdmin => {
-            let user_service = user::new(db);
-            if let Some(from_user) = msg.from {
-                if !user_service.is_admin(&from_user.id.to_string()).await {
-                    bot.send_message(msg.chat.id, MESSAGES.NOT_ADMIN).await?;
-                    return Ok(());
-                }
-                dialogue.update(State::DeleteAdmin).await?;
-                bot.send_message(msg.chat.id, MESSAGES.REMOVE_ADMIN_PROMPT)
-                    .await?;
-            }
-        }
-
-        Command::ListAdmins => {
-            let user_service = user::new(db);
-            if let Some(from_user) = msg.from {
-                if !user_service.is_admin(&from_user.id.to_string()).await {
-                    bot.send_message(msg.chat.id, MESSAGES.NOT_ADMIN).await?;
-                    return Ok(());
-                }
-
-                let admins = user_service.all_admins().await;
-                if admins.is_empty() {
-                    bot.send_message(msg.chat.id, MESSAGES.NO_ADMINS).await?;
-                } else {
-                    let mut message = String::from("***管理员***\n");
-                    for admin in admins {
-                        message.push_str(&format!(
-                            "{}, ID：{}, 创建时间：{} \n",
-                            admin.user_name,
-                            admin.user_id,
-                            admin.created_at.format("%Y-%m-%d %H:%M:%S")
-                        ));
-                    }
-                    bot.send_message(msg.chat.id, message).await?;
-                }
-            }
-        }
-
-        Command::SetWelcomeMsg => {
-            let user_service = user::new(db.clone());
-            if let Some(from_user) = msg.from {
-                if !user_service.is_admin(&from_user.id.to_string()).await {
-                    bot.send_message(msg.chat.id, MESSAGES.NOT_ADMIN).await?;
-                    return Ok(());
-                }
-                dialogue.update(State::SetWelcomeMsg).await?;
-                bot.send_message(msg.chat.id, "请输入您要设定的欢迎语：\n")
-                    .await?;
-            }
-        }
-        Command::AddPollingMessage => {
-            let user_service = user::new(db.clone());
-            if let Some(from_user) = msg.from {
-                if !user_service.is_admin(&from_user.id.to_string()).await {
-                    bot.send_message(msg.chat.id, MESSAGES.NOT_ADMIN).await?;
-                    return Ok(());
-                }
-                dialogue.update(State::AddPollingMsg).await?;
-                bot.send_message(msg.chat.id, "第1步 先添加内容:\n").await?;
-            }
-        }
-
-        Command::ListMessages => {
-            let user_service = user::new(db.clone());
-            if let Some(from_user) = msg.from {
-                if !user_service.is_admin(&from_user.id.to_string()).await {
-                    bot.send_message(msg.chat.id, MESSAGES.NOT_ADMIN).await?;
-                    return Ok(());
-                }
-
-                let msg_list = my_msg::new(db).all().await;
-
-                if msg_list.is_empty() {
-                    bot.send_message(msg.chat.id, "还未设置任何消息").await?;
-                } else {
-                    let mut message = String::from("***消息列表***\n");
-                    for msg_item in msg_list {
-                        message.push_str("\n");
-                        message.push_str(&format!(
-                            "类型: {}\n标题：{}\n内容：\n{}\n",
-                            if msg_item.msg_type == MsgType::Polling {
-                                "定时推送"
-                            } else {
-                                "欢迎语"
-                            },
-                            msg_item.msg_title,
-                            msg_item.msg_text
-                        ));
-                        message.push_str("-------------------\n")
-                    }
-                    bot.send_message(msg.chat.id, message).await?;
-                }
-            }
-        }
-
-        Command::Group => {
-            let g = group::new(db).all().await;
-            if g.len() <= 0 {
-                bot.send_message(msg.chat.id, "暂未添加群").await?;
-                return Ok(());
-            }
-
-            // 创建 InlineKeyboardButton 数组
-            let mut group_but: Vec<Vec<InlineKeyboardButton>> = vec![];
-            for i in g {
-                group_but.push(vec![InlineKeyboardButton::callback(
-                    i.group_name,
-                    format!("group_{}", i.id),
-                )]);
-            }
-
-            // 将按钮数组包装成矩阵形式
-            let keyboard = InlineKeyboardMarkup::new(group_but);
-            bot.send_message(msg.chat.id, "所有群\n")
-                .reply_markup(keyboard)
-                .await?;
-        }
-
-        _ => {
-            bot.send_message(msg.chat.id, "Sorry, 该功能待完善...V我50，助力此功能🌚")
-                .await?;
-        }
-    };
-
-    Ok(())
-}
-
 pub async fn handle_add_admin(
     bot: Bot,
     msg: Message,
-    dialogue: MyDialogue,
+    dialogue: MainDialogue,
     db: Db,
 ) -> HandlerResult {
     if let Some(text) = msg.text() {
@@ -559,7 +319,7 @@ pub async fn handle_add_admin(
 pub async fn handle_delete_admin(
     bot: Bot,
     msg: Message,
-    dialogue: MyDialogue,
+    dialogue: MainDialogue,
     db: Db,
 ) -> HandlerResult {
     if let Some(user_id) = msg.text() {
@@ -579,7 +339,7 @@ pub async fn handle_delete_admin(
     Ok(())
 }
 
-pub async fn handle_add_polling_msg(bot: Bot, msg: Message, dialogue: MyDialogue) -> HandlerResult {
+pub async fn handle_add_polling_msg(bot: Bot, msg: Message, dialogue: MainDialogue) -> HandlerResult {
     if let Some(add_msg) = msg.text() {
         dialogue
             .update(State::AddPollingTitle(add_msg.to_string()))
@@ -595,7 +355,7 @@ pub async fn handle_add_polling_msg(bot: Bot, msg: Message, dialogue: MyDialogue
 pub async fn handle_add_polling_title(
     bot: Bot,
     msg: Message,
-    dialogue: MyDialogue,
+    dialogue: MainDialogue,
     db: Db,
 ) -> HandlerResult {
     let state = dialogue.get().await?.unwrap();
@@ -640,7 +400,7 @@ pub async fn handle_add_polling_title(
 pub async fn handle_set_welcome_msg(
     bot: Bot,
     msg: Message,
-    dialogue: MyDialogue,
+    dialogue: MainDialogue,
     db: Db,
 ) -> HandlerResult {
     if let Some(add_msg) = msg.text() {
@@ -674,13 +434,14 @@ pub async fn handle_invalid_command(bot: Bot, msg: Message) -> HandlerResult {
 }
 
 /// 按钮监听入口
+#[deprecated]
 pub async fn handle_group_but_callback_query(
     bot: Bot,
     q: CallbackQuery,
-    dialogue: MyDialogue,
+    dialogue: MainDialogue,
     db: Db,
 ) -> HandlerResult {
-    info!("in handle_group_but_callback_query");
+    info!("Into callback_query handle");
 
     if q.data.is_none() {
         bot.answer_callback_query(&q.id).text("我看了一眼").await?;
@@ -691,7 +452,7 @@ pub async fn handle_group_but_callback_query(
     if data.starts_with("group_") {
         let group_id = data.replace("group_", "");
         show_group_buttons(&bot, &q, &group_id).await?;
-    } else if data.starts_with("addpush_") {
+    } else if data.starts_with("group_msg_") {
         handle_add_group_push_callback(&bot, &q, db).await?;
     } else if data.starts_with("pushmsg_") {
         handle_set_push_time_callback(&bot, &q, dialogue).await?;
@@ -710,6 +471,7 @@ pub async fn handle_group_but_callback_query(
 }
 
 // 显示操作按钮的函数
+#[deprecated]
 async fn show_group_buttons(bot: &Bot, q: &CallbackQuery, group_id: &str) -> HandlerResult {
     bot.answer_callback_query(&q.id).text("已选择群组").await?;
 
@@ -747,6 +509,7 @@ async fn show_group_buttons(bot: &Bot, q: &CallbackQuery, group_id: &str) -> Han
 // 2. 选择其中一个
 // 3. 设置时间
 // 4. 完成当前操作
+#[deprecated]
 async fn handle_add_group_push_callback(bot: &Bot, q: &CallbackQuery, db: Db) -> HandlerResult {
     if q.message.is_none() {
         return Ok(());
@@ -793,7 +556,7 @@ async fn handle_add_group_push_callback(bot: &Bot, q: &CallbackQuery, db: Db) ->
 async fn handle_set_push_time_callback(
     bot: &Bot,
     q: &CallbackQuery,
-    dialogue: MyDialogue,
+    dialogue: MainDialogue,
 ) -> HandlerResult {
     if q.message.is_none() {
         return Ok(());
@@ -819,10 +582,11 @@ async fn handle_set_push_time_callback(
 
 ///
 /// 群推送,设置时间
+#[deprecated]
 pub async fn handle_group_push_callback(
     bot: Bot,
     msg: Message,
-    dialogue: MyDialogue,
+    dialogue: MainDialogue,
     db: Db,
 ) -> HandlerResult {
     let time_str = msg.text();
