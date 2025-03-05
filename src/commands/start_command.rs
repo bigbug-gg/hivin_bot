@@ -1,5 +1,5 @@
 use log::info;
-use crate::commands::{AdminCommand, MESSAGES};
+use crate::commands::{AdminCommand};
 use crate::service::{group, user, Db};
 use crate::{HandlerResult, MainDialogue, State};
 use teloxide::prelude::{Message, Requester};
@@ -16,6 +16,14 @@ pub async fn enter(
     db: Db,
 ) -> HandlerResult {
     info!("into start command...");
+    
+    let user_service = user::new(db.clone());
+    let from_user = msg.from.unwrap();
+    if !user_service.is_admin(&from_user.id.to_string()).await {
+        bot.send_message(msg.chat.id, "Unauthorized").await?;
+        return Ok(());
+    }
+    
     match cmd {
         AdminCommand::Admins => {
             bot.send_message(
@@ -23,67 +31,43 @@ pub async fn enter(
                 "Choose action",
             ).reply_markup(admin_menu()).await?;
         }
-
         AdminCommand::HiMsg => {
-            let user_service = user::new(db.clone());
-            if let Some(from_user) = msg.from {
-                if !user_service.is_admin(&from_user.id.to_string()).await {
-                    bot.send_message(msg.chat.id, MESSAGES.NOT_ADMIN).await?;
-                    return Ok(());
-                }
-                dialogue.update(State::SetWelcomeMsg).await?;
-                bot.send_message(msg.chat.id, "请输入您要设定的欢迎语：\n")
-                    .await?;
-            }
+            dialogue.update(State::SetWelcomeMsg).await?;
+            bot.send_message(msg.chat.id, "Set welcome message for new members:\n")
+                .await?;
         }
         AdminCommand::PollMsg => {
-            let user_service = user::new(db.clone());
-            if let Some(from_user) = msg.from {
-                if !user_service.is_admin(&from_user.id.to_string()).await {
-                    bot.send_message(msg.chat.id, MESSAGES.NOT_ADMIN).await?;
-                    return Ok(());
-                }
-                dialogue.update(State::AddPollingMsg).await?;
-                bot.send_message(msg.chat.id, "第1步 先添加内容:\n").await?;
-            }
+            dialogue.update(State::AddPollingMsg).await?;
+            bot.send_message(msg.chat.id, "Step 1: Add welcome text\n").await?;
         }
         AdminCommand::Msg => {
+            let msg_list = crate::service::msg::new(db).all().await;
 
-            let user_service = user::new(db.clone());
-            if let Some(from_user) = msg.from {
-                if !user_service.is_admin(&from_user.id.to_string()).await {
-                    bot.send_message(msg.chat.id, MESSAGES.NOT_ADMIN).await?;
-                    return Ok(());
+            if msg_list.is_empty() {
+                bot.send_message(msg.chat.id, "No messages set yet").await?;
+            } else {
+                let mut message = String::from("***messages***\n");
+                for msg_item in msg_list {
+                    message.push_str("\n");
+                    message.push_str(&format!(
+                        "Type: {}\nTitle:{}\nText:\n{}\n",
+                        if msg_item.msg_type == MsgType::Polling {
+                            "Push message"
+                        } else {
+                            "Welcome message"
+                        },
+                        msg_item.msg_title,
+                        msg_item.msg_text
+                    ));
+                    message.push_str("-------------------\n")
                 }
-
-                let msg_list = crate::service::msg::new(db).all().await;
-
-                if msg_list.is_empty() {
-                    bot.send_message(msg.chat.id, "还未设置任何消息").await?;
-                } else {
-                    let mut message = String::from("***消息列表***\n");
-                    for msg_item in msg_list {
-                        message.push_str("\n");
-                        message.push_str(&format!(
-                            "类型: {}\n标题：{}\n内容：\n{}\n",
-                            if msg_item.msg_type == MsgType::Polling {
-                                "定时推送"
-                            } else {
-                                "欢迎语"
-                            },
-                            msg_item.msg_title,
-                            msg_item.msg_text
-                        ));
-                        message.push_str("-------------------\n")
-                    }
-                    bot.send_message(msg.chat.id, message).await?;
-                }
+                bot.send_message(msg.chat.id, message).await?;
             }
         }
         AdminCommand::Group => {
             let g = group::new(db).all().await;
             if g.len() <= 0 {
-                bot.send_message(msg.chat.id, "暂未添加群").await?;
+                bot.send_message(msg.chat.id, "No groups joined").await?;
                 return Ok(());
             }
 
@@ -98,7 +82,7 @@ pub async fn enter(
 
             // 将按钮数组包装成矩阵形式
             let keyboard = InlineKeyboardMarkup::new(group_but);
-            bot.send_message(msg.chat.id, "所有群\n")
+            bot.send_message(msg.chat.id, "All groups\n")
                 .reply_markup(keyboard)
                 .await?;
         }
@@ -111,7 +95,7 @@ pub async fn enter(
 /// 
 /// Managers: admin list
 /// Newly Added: add news
-fn admin_menu() -> InlineKeyboardMarkup {
+pub fn admin_menu() -> InlineKeyboardMarkup {
     let admin_button = vec![
         ("👨‍💼 Managers", "managers"),
         ("🆕 Newly Added", "newly_added")];

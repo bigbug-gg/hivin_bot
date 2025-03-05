@@ -2,24 +2,20 @@ pub mod answer;
 pub mod start_command;
 
 #[deprecated]
-
-use crate::service::msg::MsgType;
-use crate::service::{msg, user, polling_msg};
 use crate::{
-    service::{group, Db},
+    service::{
+        msg::{self, MsgType},
+        polling_msg, Db,
+    },
     HandlerResult, MainDialogue, State,
 };
 use chrono::NaiveTime;
-use log::{error, info};
+use log::info;
 use teloxide::{
     prelude::*,
-    types::{
-        ChatMemberStatus, InlineKeyboardButton, InlineKeyboardMarkup, Me, ParseMode,
-        User,
-    },
+    types::{InlineKeyboardButton, InlineKeyboardMarkup, Me},
     utils::command::BotCommands,
 };
-use teloxide::types::ChatMemberKind;
 
 /// Default command
 #[derive(BotCommands, Clone)]
@@ -27,13 +23,13 @@ use teloxide::types::ChatMemberKind;
 pub enum Command {
     #[command(description = "Help")]
     Help,
-    
+
     #[command(description = "Start")]
     Start,
-    
+
     #[command(description = "Cancel")]
     Cancel,
-    
+
     #[command(description = "Who am i?")]
     Whoami,
 }
@@ -41,9 +37,7 @@ pub enum Command {
 /// Admin command
 #[derive(BotCommands, Clone)]
 #[command(rename_rule = "lowercase", description = "Commands:")]
-pub enum AdminCommand{
-    // 管理员管理命令
-    // 当前管理， 添加管理
+pub enum AdminCommand {
     #[command(description = "📋 Admin list")]
     Admins,
 
@@ -52,8 +46,7 @@ pub enum AdminCommand{
 
     #[command(description = "📝 Add msg")]
     PollMsg,
-
-    /// todo: Need more function control Msg module.
+    
     #[command(description = "📜 Messages")]
     Msg,
 
@@ -61,245 +54,19 @@ pub enum AdminCommand{
     Group,
 }
 
-/// Todo: Delete the const string and change it another way.
-const MESSAGES: Messages = Messages {
-    WELCOME_ADMIN: "欢迎使用! 您已被设置为管理员。\n使用 /help 查看所有命令",
-    WELCOME_BACK: "欢迎回来! 使用 /help 查看所有命令",
-    NOT_ADMIN: "抱歉，您不是管理员，无法使用此功能。",
-    INVALID_USER: "无法获取用户信息，请确保您的账号设置正确。",
-    ADMIN_SET_FAILED: "设置管理员失败，请稍后重试。",
-    ADD_ADMIN_PROMPT: "输入添加为管理员的用户ID和用户名，空格隔开：",
-    CONFIRM_ADD_ADMIN: "确认要将用户 {} 添加为管理员吗？\n回复 'yes' 确认，或 'no' 取消",
-    ADMIN_ADDED: "已成功添加管理员！",
-    REMOVE_ADMIN_PROMPT: "请输入要移除管理员权限的用户ID:",
-    ADMIN_REMOVED: "已成功移除管理员权限！",
-    INVALID_FORMAT: "输入格式错误，请重新输入。",
-    NO_ADMINS: "当前没有管理员。",
-};
-
-struct Messages {
-    WELCOME_ADMIN: &'static str,
-    WELCOME_BACK: &'static str,
-    NOT_ADMIN: &'static str,
-    INVALID_USER: &'static str,
-    ADMIN_SET_FAILED: &'static str,
-    ADD_ADMIN_PROMPT: &'static str,
-    CONFIRM_ADD_ADMIN: &'static str,
-    ADMIN_ADDED: &'static str,
-    REMOVE_ADMIN_PROMPT: &'static str,
-    ADMIN_REMOVED: &'static str,
-    INVALID_FORMAT: &'static str,
-    NO_ADMINS: &'static str,
-}
-
-async fn handle_existing_admin(
-    bot: Bot,
-    chat_id: ChatId,
-    dialogue: MainDialogue,
-    user_service: user::User,
-    user_id: &str,
-) -> HandlerResult {
-    if user_service.is_admin(user_id).await {
-        dialogue.update(State::Menu).await?;
-        bot.send_message(chat_id, MESSAGES.WELCOME_BACK).await?;
-    } else {
-        bot.send_message(chat_id, MESSAGES.NOT_ADMIN).await?;
-    }
-
-    Ok(())
-}
-
-// Group event trigger only belong user can work.
-pub async fn handle_my_chat_member(
-    bot: Bot,
-    chat_member: ChatMemberUpdated,
-    me: Me,
-    db: Db,
-) -> HandlerResult {
-
-    if chat_member.new_chat_member.user.id != me.id {
-        return Ok(());
-    }
-
-    let chat_id = chat_member.chat.id.to_string();
-    let chat_title = chat_member
-        .chat
-        .title()
-        .unwrap_or("Unknown Group")
-        .to_string();
-    let group_service = group::new(db.clone());
-
-    match chat_member.new_chat_member.status() {
-        ChatMemberStatus::Left | ChatMemberStatus::Banned => {
-            info!("Bot was removed from chat {}: {}", chat_id, chat_title);
-
-            // delete database info only
-            match group_service.delete_group(&chat_id).await {
-                Ok(true) => {
-                    info!("{} was removed from bot database", chat_title);
-                }
-                Ok(false) => {
-                    info!("{} was not found in bot database", chat_title);
-                }
-                Err(e) => {
-                    error!("Failed to delete group from database: {}", e);
-                }
-            }
-        }
-
-        ChatMemberStatus::Member | ChatMemberStatus::Administrator => {
-            info!("Bot was added to chat {}: {}", chat_id, chat_title);
-
-            // 先尝试发送消息，确认有权限
-            let message_result = bot
-                .send_message(chat_id.clone(), "Hello！\n\n/help - 查看所有命令")
-                .await;
-
-            match message_result {
-                Ok(_) => {
-                    // 消息发送成功后再保存群组信息
-                    match group_service.add_group(&chat_id, &chat_title).await {
-                        Ok(_) => {
-                            info!("Successfully added group to database");
-                        }
-                        Err(e) => {
-                            error!("Failed to add group to database: {}", e);
-                            // 可以尝试发送错误消息，但要注意处理可能的错误
-                            let _ = bot
-                                .send_message(
-                                    chat_id,
-                                    "初始化群组设置时发生错误，请稍后重试或联系管理员。",
-                                )
-                                .await;
-                        }
-                    }
-                }
-                Err(e) => {
-                    error!("Failed to send welcome message: {}", e);
-                }
-            }
-        }
-        _ => {
-            info!("Unhandled chat member status update");
-        }
-    }
-
-    Ok(())
-}
-
-pub async fn handle_member_update(bot: Bot, member_update: ChatMemberUpdated, db: Db) -> HandlerResult {
-    let chat_id = member_update.chat.id;
-
-    let user = member_update.from;
-    match member_update.new_chat_member.kind {
-        ChatMemberKind::Owner(_) => {
-            bot.send_message(
-                chat_id,
-                format!("{} 是群主", user.full_name()),
-            ).await?;
-        },
-
-        ChatMemberKind::Administrator(_) => {
-            bot.send_message(
-                chat_id,
-                format!("{} 成为管理员", user.full_name()),
-            ).await?;
-        },
-
-        ChatMemberKind::Member => {
-            let welcome = msg::new(db).welcome_msg().await;
-            bot.send_message(
-                chat_id,
-                welcome
-            ).await?;
-        },
-
-        ChatMemberKind::Restricted(restricted) => {
-            bot.send_message(
-                chat_id,
-                format!("{} 被限制", user.full_name()),
-            ).await?;
-        },
-
-        ChatMemberKind::Left => {
-            bot.send_message(
-                chat_id,
-                "成员离开群组"
-            ).await?;
-        },
-
-        ChatMemberKind::Banned(banned) => {
-            bot.send_message(
-                chat_id,
-                format!("{} 被封禁", user.full_name())
-            ).await?;
-        }
-    }
-
-    Ok(())
-}
-
-pub async fn handle_add_admin(
+pub async fn handle_add_polling_msg(
     bot: Bot,
     msg: Message,
     dialogue: MainDialogue,
-    db: Db,
 ) -> HandlerResult {
-    if let Some(text) = msg.text() {
-        let parts: Vec<&str> = text.split_whitespace().collect();
-        if parts.len() != 2 {
-            bot.send_message(msg.chat.id, MESSAGES.INVALID_FORMAT)
-                .await?;
-            return Ok(());
-        }
-
-        let user_id = parts[0];
-        let user_name = parts[1];
-
-        let user_service = user::new(db);
-        if user_service.add_admin(user_id, user_name).await {
-            bot.send_message(msg.chat.id, MESSAGES.ADMIN_ADDED).await?;
-        } else {
-            bot.send_message(msg.chat.id, MESSAGES.ADMIN_SET_FAILED)
-                .await?;
-        }
-        dialogue.update(State::Menu).await?;
-    }
-    Ok(())
-}
-
-pub async fn handle_delete_admin(
-    bot: Bot,
-    msg: Message,
-    dialogue: MainDialogue,
-    db: Db,
-) -> HandlerResult {
-    if let Some(user_id) = msg.text() {
-        let user_service = user::new(db);
-        if user_service.cancel_admin(user_id).await {
-            bot.send_message(msg.chat.id, MESSAGES.ADMIN_REMOVED)
-                .await?;
-        } else {
-            bot.send_message(msg.chat.id, "移除管理员权限失败，请确认用户ID是否正确。")
-                .await?;
-        }
-        dialogue.update(State::Menu).await?;
-    } else {
-        bot.send_message(msg.chat.id, MESSAGES.INVALID_FORMAT)
-            .await?;
-    }
-    Ok(())
-}
-
-pub async fn handle_add_polling_msg(bot: Bot, msg: Message, dialogue: MainDialogue) -> HandlerResult {
     if let Some(add_msg) = msg.text() {
         dialogue
             .update(State::AddPollingTitle(add_msg.to_string()))
             .await?;
-        bot.send_message(msg.chat.id, "第2步 再设置标题:").await?;
-    } else {
-        bot.send_message(msg.chat.id, MESSAGES.INVALID_FORMAT)
+        bot.send_message(msg.chat.id, "Step 2,setting title:")
             .await?;
+    } else {
+        bot.send_message(msg.chat.id, "Input Error").await?;
     }
     Ok(())
 }
@@ -320,29 +87,28 @@ pub async fn handle_add_polling_title(
                 .await
                 > 0
             {
-                bot.send_message(
-                    msg.chat.id,
-                    "新增成功，记得设置消息跟群的关联后，定时推送才生效噢",
-                )
-                .await?;
+                bot.send_message(msg.chat.id, "The addition was successful")
+                    .await?;
 
                 dialogue
                     .update(State::AddPollingTitle(add_msg.to_string()))
                     .await?;
             } else {
-                bot.send_message(msg.chat.id, "新增失败，请稍后再试")
-                    .await?;
+                bot.send_message(
+                    msg.chat.id,
+                    "The addition was error, please try again later",
+                )
+                .await?;
             }
             dialogue.update(State::Menu).await?;
         } else {
-            bot.send_message(msg.chat.id, MESSAGES.INVALID_FORMAT)
-                .await?;
+            bot.send_message(msg.chat.id, "Input Error").await?;
         }
     } else {
-        bot.send_message(msg.chat.id, "状态异常，触发重置状态...")
+        bot.send_message(msg.chat.id, "Status error, auto reset to default")
             .await?;
         dialogue.update(State::Menu).await?;
-        bot.send_message(msg.chat.id, "重置状态完成").await?;
+        bot.send_message(msg.chat.id, "Reset success").await?;
         return Ok(());
     }
 
@@ -364,23 +130,22 @@ pub async fn handle_set_welcome_msg(
         {
             bot.send_message(
                 msg.chat.id,
-                "设置欢迎语成功，欢迎语是在群加入新成员时发送的消息.",
+                "Welcome message saved. Triggers on new member join.",
             )
             .await?;
         } else {
-            bot.send_message(msg.chat.id, "设置失败，请稍后再试")
+            bot.send_message(msg.chat.id, "Setting failed. Please retry.")
                 .await?;
         }
         dialogue.update(State::Menu).await?;
     } else {
-        bot.send_message(msg.chat.id, MESSAGES.INVALID_FORMAT)
-            .await?;
+        bot.send_message(msg.chat.id, "").await?;
     }
     Ok(())
 }
 
 pub async fn handle_invalid_command(bot: Bot, msg: Message) -> HandlerResult {
-    bot.send_message(msg.chat.id, "无效的命令。使用 /help 查看所有可用命令。")
+    bot.send_message(msg.chat.id, "Invalid command. Type /help")
         .await?;
     Ok(())
 }
@@ -396,7 +161,9 @@ pub async fn handle_group_but_callback_query(
     info!("Into callback_query handle");
 
     if q.data.is_none() {
-        bot.answer_callback_query(&q.id).text("我看了一眼").await?;
+        bot.answer_callback_query(&q.id)
+            .text("Empty request")
+            .await?;
         return Ok(());
     }
 
@@ -654,7 +421,7 @@ async fn handle_delete_group_push_callback(bot: &Bot, q: &CallbackQuery, db: Db)
     Ok(())
 }
 
-// 处理"取消"按钮的回调
+/// Cancel
 async fn handle_cancel_callback(bot: &Bot, q: &CallbackQuery) -> HandlerResult {
     if let Some(message) = &q.message {
         bot.answer_callback_query(&q.id).text("已取消").await?;

@@ -33,7 +33,7 @@ pub async fn enter(
 
         Command::Cancel => {
             dialogue.update(State::Menu).await?;
-            bot.send_message(msg.chat.id, "this session is ended.")
+            bot.send_message(msg.chat.id, "This session is ended.")
                 .await?;
         }
 

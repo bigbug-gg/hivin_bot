@@ -1,17 +1,12 @@
 mod admin_callback;
 pub mod callback_query;
+pub mod group;
 
-use crate::commands::{
-    handle_group_but_callback_query, handle_member_update, handle_my_chat_member,
-};
-use crate::{commands, MainDialogue, State};
+use crate::{commands, State};
 use teloxide::dispatching::dialogue::ErasedStorage;
-use teloxide::dptree::case;
-use teloxide::{
-    dispatching::{UpdateFilterExt, UpdateHandler},
-    dptree,
-    prelude::*,
-};
+use teloxide::dptree::{case};
+use teloxide::{dispatching::{UpdateFilterExt, UpdateHandler}, dptree, prelude::*};
+use crate::my_handler::group::{handle_member_update, handle_my_chat_member};
 
 /// Create handler
 pub fn create() -> UpdateHandler<Box<dyn std::error::Error + Send + Sync + 'static>> {
@@ -28,11 +23,11 @@ pub fn create() -> UpdateHandler<Box<dyn std::error::Error + Send + Sync + 'stat
                 .enter_dialogue::<Message, ErasedStorage<State>, State>()
                 .branch(command_handler())
                 .branch(admin_command_handler())
-                .branch(dialogue_handler()),
+                .branch(dialogue_handler())
         )
 }
 
-pub fn command_handler() -> UpdateHandler<Box<dyn std::error::Error + Send + Sync + 'static>> {
+fn command_handler() ->UpdateHandler<Box<dyn std::error::Error + Send + Sync + 'static>>{
     dptree::filter(|msg: Message| {
         msg.text()
             .map(|text| text.starts_with('/'))
@@ -52,16 +47,17 @@ fn admin_command_handler() -> UpdateHandler<Box<dyn std::error::Error + Send + S
     .endpoint(commands::start_command::enter)
 }
 
+
+/// Dialogue handler
 fn dialogue_handler() -> UpdateHandler<Box<dyn std::error::Error + Send + Sync + 'static>> {
     dptree::entry()
-        // Admin
-        .branch(case![State::Admin].endpoint(commands::handle_add_admin))
-        .branch(case![State::DeleteAdmin].endpoint(commands::handle_delete_admin))
-
         // Message
         .branch(case![State::SetWelcomeMsg].endpoint(commands::handle_set_welcome_msg))
         .branch(case![State::AddPollingMsg].endpoint(commands::handle_add_polling_msg))
         .branch(case![State::AddPollingTitle(title)].endpoint(commands::handle_add_polling_title))
+        
+        // Update admin user name
+        // .branch(case![State::AdminRename(name)].endpoint(rename_admin_submit))
 
         // Group
         .branch(case![State::Group].endpoint(commands::handle_group_push_callback))

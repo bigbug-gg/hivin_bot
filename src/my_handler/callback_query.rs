@@ -1,20 +1,19 @@
-use chrono::NaiveTime;
+use crate::commands::start_command::admin_menu;
+use crate::my_handler::admin_callback::{admin_chose_menu, all_admin, delete_admin, rename_admin};
 use crate::service::{msg, polling_msg, Db};
 use crate::{HandlerResult, MainDialogue, State};
+use chrono::NaiveTime;
 use log::info;
 use teloxide::payloads::{AnswerCallbackQuerySetters, EditMessageTextSetters};
 use teloxide::prelude::{Message, Requester};
 use teloxide::types::{CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup};
 use teloxide::Bot;
-use crate::my_handler::admin_callback::all_admin;
 
 /// Query enter
 pub async fn enter(bot: Bot, q: CallbackQuery, dialogue: MainDialogue, db: Db) -> HandlerResult {
-    info!("Into callback_query handle");
-
+    info!("Into callback query handle");
     if q.data.is_none() {
-        bot
-            .answer_callback_query(q.id)
+        bot.answer_callback_query(q.id)
             .text("Callback but does not carry any data!")
             .await?;
         return Ok(());
@@ -30,25 +29,45 @@ pub async fn enter(bot: Bot, q: CallbackQuery, dialogue: MainDialogue, db: Db) -
     match parts.as_slice() {
         // Choose group
         ["group", group_id] => {
-            show_group_buttons(&bot, &q, &dialogue,group_id).await?;
+            show_group_buttons(&bot, &q, &dialogue, group_id).await?;
         }
 
         ["group", "msg", group_id] => {
-            show_msg_list(&bot, &q, &dialogue,db, group_id).await?;
+            show_msg_list(&bot, &q, &dialogue, db, group_id).await?;
         }
 
         // Admin list
         ["managers"] => {
             all_admin(&bot, &q, &db).await?;
-        },
+        }
 
         // add new
         ["newly", "added"] => {
-
+            bot.answer_callback_query(q.id)
+                .text("Development...")
+                .await?;
         }
+        ["back", "admin"] => {
+            let mess = q.message.as_ref().unwrap();
+            bot.edit_message_text(mess.chat().id, mess.id(), "Choose action")
+                .reply_markup(admin_menu())
+                .await?;
+        }
+        ["chosen", "admin", param] => {
+            dialogue
+                .update(State::AdminChoose(param.to_string()))
+                .await?;
+            admin_chose_menu(&bot, &q).await?;
+        }
+        ["admin", "delete"] => {
+            delete_admin(&bot, &q, dialogue, &db).await?;
+        }
+        ["admin", "rename"] => {
+            rename_admin(&bot, &q, dialogue).await?;
+        }
+       
         _ => {
-            bot
-                .answer_callback_query(q.id)
+            bot.answer_callback_query(q.id)
                 .text(format!("Missing actuator callback query: {:?}", parts))
                 .await?;
         }
@@ -57,7 +76,12 @@ pub async fn enter(bot: Bot, q: CallbackQuery, dialogue: MainDialogue, db: Db) -
     Ok(())
 }
 
-async fn show_group_buttons(bot: &Bot, q: &CallbackQuery, dialogue: &MainDialogue, group_id: &str) -> HandlerResult {
+async fn show_group_buttons(
+    bot: &Bot,
+    q: &CallbackQuery,
+    dialogue: &MainDialogue,
+    group_id: &str,
+) -> HandlerResult {
     let message = q.message.as_ref().unwrap();
     let message_id = message.id();
 
@@ -75,22 +99,27 @@ async fn show_group_buttons(bot: &Bot, q: &CallbackQuery, dialogue: &MainDialogu
     ]]);
 
     dialogue.update(State::Group).await?;
-    bot
-        .edit_message_text(
-            message.chat().id,
-            message_id,
-            format!("Selected group: {}\nPlease choose an operation:", group_id),
-        )
-        .reply_markup(keyboard)
-        .await?;
+    bot.edit_message_text(
+        message.chat().id,
+        message_id,
+        format!("Selected group: {}\nPlease choose an operation:", group_id),
+    )
+    .reply_markup(keyboard)
+    .await?;
     Ok(())
 }
 
-pub async fn show_msg_list(bot: &Bot, q: &CallbackQuery, dialogue: &MainDialogue, db:Db, group_id: &str) -> HandlerResult {
+pub async fn show_msg_list(
+    bot: &Bot,
+    q: &CallbackQuery,
+    dialogue: &MainDialogue,
+    db: Db,
+    group_id: &str,
+) -> HandlerResult {
     let list_msg = msg::new(db.clone()).all().await;
-    
+
     let mut keyboard_buttons: Vec<Vec<InlineKeyboardButton>> = vec![
-        // 返回按钮单独一行，放在最前面
+        // the back button always front of others.
         vec![InlineKeyboardButton::callback(
             "⬅️ back",
             format!("back_to_ops_{}", group_id),
@@ -112,14 +141,18 @@ pub async fn show_msg_list(bot: &Bot, q: &CallbackQuery, dialogue: &MainDialogue
         })
         .await?;
 
-    bot
-        .edit_message_text(message.chat().id, message.id(), "Select group:\n")
+    bot.edit_message_text(message.chat().id, message.id(), "Select group:\n")
         .reply_markup(keyboard)
         .await?;
     Ok(())
 }
 
-pub async fn choose_msg(bot: Bot, q: CallbackQuery, dialogue: MainDialogue, msg_id: i64) -> HandlerResult {
+pub async fn choose_msg(
+    bot: Bot,
+    q: CallbackQuery,
+    dialogue: MainDialogue,
+    msg_id: i64,
+) -> HandlerResult {
     let group_id;
     match dialogue.get().await?.unwrap() {
         State::GroupChoose { group_db_id } => group_id = group_db_id,
@@ -134,13 +167,17 @@ pub async fn choose_msg(bot: Bot, q: CallbackQuery, dialogue: MainDialogue, msg_
         .await?;
 
     let message = q.message.as_ref().unwrap();
-    bot
-        .send_message(message.chat().id, "Enter time (HH:MM, e.g. 08:20)\n")
+    bot.send_message(message.chat().id, "Enter time (HH:MM, e.g. 08:20)\n")
         .await?;
     Ok(())
 }
 
-pub async fn set_group_push_time(bot: Bot, msg: Message, dialogue: MainDialogue, db: Db) -> HandlerResult {
+pub async fn set_group_push_time(
+    bot: Bot,
+    msg: Message,
+    dialogue: MainDialogue,
+    db: Db,
+) -> HandlerResult {
     let time_str = msg.text();
     if time_str.is_none() {
         bot.send_message(msg.chat.id, "Enter time (HH:MM, e.g. 08:20)\n")
@@ -154,21 +191,31 @@ pub async fn set_group_push_time(bot: Bot, msg: Message, dialogue: MainDialogue,
     };
 
     if !time_ok {
-        bot.send_message(msg.chat.id, "Error: Invalid time format. Please use HH:MM (e.g. 08:20)\n")
-            .await?;
+        bot.send_message(
+            msg.chat.id,
+            "Error: Invalid time format. Please use HH:MM (e.g. 08:20)\n",
+        )
+        .await?;
         return Ok(());
     }
 
     let group_id;
     let msg_id;
     match dialogue.get().await?.unwrap() {
-        State::GroupPushMsg { group_db_id, msg_db_id } => {
+        State::GroupPushMsg {
+            group_db_id,
+            msg_db_id,
+        } => {
             group_id = group_db_id;
             msg_id = msg_db_id;
         }
         _ => {
-            bot.send_message(msg.chat.id, "Set group message push time: state data error!").await?;
-            return Ok(())
+            bot.send_message(
+                msg.chat.id,
+                "Set group message push time: state data error!",
+            )
+            .await?;
+            return Ok(());
         }
     }
 
@@ -185,8 +232,8 @@ pub async fn set_group_push_time(bot: Bot, msg: Message, dialogue: MainDialogue,
         } else {
             "Failure inserting."
         },
-    ).await?;
-
+    )
+    .await?;
 
     dialogue.update(State::Menu).await?;
     Ok(())

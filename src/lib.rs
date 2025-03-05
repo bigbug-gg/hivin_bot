@@ -8,7 +8,7 @@ use teloxide::dispatching::dialogue::{ErasedStorage, SqliteStorage, Storage};
 use teloxide::dispatching::Dispatcher;
 use teloxide::payloads::SendMessageSetters;
 use teloxide::prelude::{Dialogue, Requester};
-use teloxide::types::{ChatId, ParseMode};
+use teloxide::types::{ChatId,ParseMode};
 use teloxide::{dptree, Bot};
 
 pub mod commands;
@@ -23,10 +23,8 @@ pub enum State {
 
     // Admin module
     Admin,
-    DeleteAdmin,
-    AdminChoose(i64),
-    AdminDelete(i64),
-    AdminRename(i64, String),
+    AdminChoose(String),
+    AdminRename(String),
 
     // Message module
     AddPollingMsg,           // add the message for poll push.
@@ -90,11 +88,9 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             .await
             .map_err(|e| format!("Failed to open SQLite storage: {}", e))?
             .erase();
-
-        let create_handler = my_handler::create();
-
+        
         info!("Message handler created...");
-        Dispatcher::builder(bot_clone, create_handler)
+        Dispatcher::builder(bot_clone, my_handler::create())
             .dependencies(dptree::deps![storage, db_main])
             .enable_ctrlc_handler()
             .build()
@@ -118,10 +114,10 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 }
 
-// Polling thread enter
+/// Polling thread enter
 async fn poll_task(bot: &Bot, db: Db) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     info!("Executing poll task...");
-    // 获取当前时间，格式化为 HH:mm
+    // Get Datetime HH:mm
     let current_time = Local::now().format("%H:%M").to_string();
     info!("Executing poll task at {}...", current_time);
 
