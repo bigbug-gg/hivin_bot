@@ -58,9 +58,16 @@ pub async fn enter(
 /// 2. When a user has admin privileges, it can access the admin's module commands.
 ///
 async fn start_command_init(bot: Bot, msg: Message, db: Db) -> HandlerResult {
-    let user_service = user::new(db);
+    if msg.from.is_none() {
+        info!("The message didn't come from a person.n't from person");
+        bot.send_message(msg.chat.id, "Fail:no from user").await?;
+        return Ok(());
+    }
 
-    if user_service.has_admin().await {
+    let user_service = user::new(db);
+    let user = msg.from.clone().unwrap();
+
+    if user_service.is_admin(&user.id.to_string()).await {
         bot.set_my_commands(AdminCommand::bot_commands()).await?;
         bot.send_message(
             msg.chat.id,
@@ -74,13 +81,14 @@ async fn start_command_init(bot: Bot, msg: Message, db: Db) -> HandlerResult {
         return Ok(());
     }
 
-    if msg.from.is_none() {
-        info!("no from user");
-        bot.send_message(msg.chat.id, "Fail:no from user").await?;
+    // Has admin
+    if user_service.has_admin().await {
+        bot.send_message(msg.chat.id, "Access restricted to administrators only")
+            .await?;
         return Ok(());
     }
 
-    // Set the user with an admin when it is the first user.
+    // The first user will become the administrator
     let user = msg.from.unwrap();
     let is_ok = user_service
         .add_admin(
@@ -90,8 +98,11 @@ async fn start_command_init(bot: Bot, msg: Message, db: Db) -> HandlerResult {
         .await;
 
     if is_ok {
-        bot.send_message(msg.chat.id, "Congratulations on becoming an administrator!")
-            .await?;
+        bot.send_message(
+            msg.chat.id,
+            "Congratulations on becoming an administrator! /start will open a new menu",
+        )
+        .await?;
     } else {
         error!("Failed to set first admin");
         bot.send_message(msg.chat.id, "Setting administrator failed")

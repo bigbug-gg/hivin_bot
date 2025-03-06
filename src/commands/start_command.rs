@@ -6,7 +6,6 @@ use teloxide::prelude::{Message, Requester};
 use teloxide::Bot;
 use teloxide::payloads::SendMessageSetters;
 use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};
-use crate::service::msg::MsgType;
 
 pub async fn enter(
     bot: Bot,
@@ -18,9 +17,10 @@ pub async fn enter(
     info!("into start command...");
     
     let user_service = user::new(db.clone());
-    let from_user = msg.from.unwrap();
+    let from_user = msg.clone().from.unwrap();
+    
     if !user_service.is_admin(&from_user.id.to_string()).await {
-        bot.send_message(msg.chat.id, "Unauthorized").await?;
+        bot.send_message(msg.chat.id, "Access denied. You are not an administrator.").await?;
         return Ok(());
     }
     
@@ -32,59 +32,15 @@ pub async fn enter(
             ).reply_markup(admin_menu()).await?;
         }
         AdminCommand::HiMsg => {
-            dialogue.update(State::SetWelcomeMsg).await?;
-            bot.send_message(msg.chat.id, "Set welcome message for new members:\n")
-                .await?;
+            bot.send_message(msg.chat.id, "Hi msg")
+                .reply_markup(hi_msg_menu()).await?;
         }
         AdminCommand::PollMsg => {
-            dialogue.update(State::AddPollingMsg).await?;
-            bot.send_message(msg.chat.id, "Step 1: Add welcome text\n").await?;
-        }
-        AdminCommand::Msg => {
-            let msg_list = crate::service::msg::new(db).all().await;
-
-            if msg_list.is_empty() {
-                bot.send_message(msg.chat.id, "No messages set yet").await?;
-            } else {
-                let mut message = String::from("***messages***\n");
-                for msg_item in msg_list {
-                    message.push_str("\n");
-                    message.push_str(&format!(
-                        "Type: {}\nTitle:{}\nText:\n{}\n",
-                        if msg_item.msg_type == MsgType::Polling {
-                            "Push message"
-                        } else {
-                            "Welcome message"
-                        },
-                        msg_item.msg_title,
-                        msg_item.msg_text
-                    ));
-                    message.push_str("-------------------\n")
-                }
-                bot.send_message(msg.chat.id, message).await?;
-            }
+            bot.send_message(msg.chat.id, "Poll msg")
+                .reply_markup(poll_msg_menu()).await?;
         }
         AdminCommand::Group => {
-            let g = group::new(db).all().await;
-            if g.len() <= 0 {
-                bot.send_message(msg.chat.id, "No groups joined").await?;
-                return Ok(());
-            }
-
-            // 创建 InlineKeyboardButton 数组
-            let mut group_but: Vec<Vec<InlineKeyboardButton>> = vec![];
-            for i in g {
-                group_but.push(vec![InlineKeyboardButton::callback(
-                    i.group_name,
-                    format!("group_{}", i.id),
-                )]);
-            }
-
-            // 将按钮数组包装成矩阵形式
-            let keyboard = InlineKeyboardMarkup::new(group_but);
-            bot.send_message(msg.chat.id, "All groups\n")
-                .reply_markup(keyboard)
-                .await?;
+            group_list_buttons(bot, msg.clone(), dialogue, db).await?;
         }
     }
     Ok(())
@@ -102,5 +58,68 @@ pub fn admin_menu() -> InlineKeyboardMarkup {
     let admin_button: Vec<InlineKeyboardButton> = admin_button.into_iter().map(|(button_name, button_call_back)| {
         InlineKeyboardButton::callback(button_name, button_call_back)
     }).collect();
-    InlineKeyboardMarkup::new(vec![admin_button])
+
+    let cancel_button = vec![InlineKeyboardButton::callback("Cancel", "cancel")];
+    InlineKeyboardMarkup::new(vec![admin_button, cancel_button])
+}
+
+
+pub fn hi_msg_menu() -> InlineKeyboardMarkup {
+    let admin_button = vec![
+        ("📄 Current", "current_welcome_message"),
+        ("⚙️ Settings", "setting_welcome_message"),
+        ];
+    let admin_button: Vec<InlineKeyboardButton> = admin_button.into_iter().map(|(button_name, button_call_back)| {
+        InlineKeyboardButton::callback(button_name, button_call_back)
+    }).collect();
+
+    let cancel_button = vec![InlineKeyboardButton::callback("Cancel", "cancel")];
+    InlineKeyboardMarkup::new(vec![admin_button, cancel_button])
+}
+
+
+pub fn poll_msg_menu() -> InlineKeyboardMarkup {
+    // Add List
+    let admin_button = vec![
+        ("➕ Add", "add_poll_message"),
+        ("📝 List", "list_poll_message"),
+    ];
+    let admin_button: Vec<InlineKeyboardButton> = admin_button.into_iter().map(|(button_name, button_call_back)| {
+        InlineKeyboardButton::callback(button_name, button_call_back)
+    }).collect();
+
+    let cancel_button = vec![InlineKeyboardButton::callback("Cancel", "cancel")];
+    InlineKeyboardMarkup::new(vec![admin_button, cancel_button])
+}
+
+
+pub async fn group_list_buttons(
+    bot: Bot,
+    msg: Message,
+    dialogue: MainDialogue,
+    db: Db,
+) -> HandlerResult {
+    let my_groups = group::new(db).all().await;
+
+    if my_groups.len() <= 0 {
+        bot.send_message(msg.chat.id, "No groups joined").await?;
+        return Ok(());
+    }
+
+    let mut group_but: Vec<Vec<InlineKeyboardButton>> = vec![];
+    for i in my_groups {
+        group_but.push(vec![InlineKeyboardButton::callback(
+            &i.group_name,
+            format!("group_{}_{}", i.id, i.group_name),
+        )]);
+    }
+
+    dialogue.update(State::Group).await?;
+    
+    // Create buttons. The title is the message title.
+    let keyboard = InlineKeyboardMarkup::new(group_but);
+    bot.send_message(msg.chat.id, "All groups\n")
+        .reply_markup(keyboard)
+        .await?;
+    Ok(())
 }

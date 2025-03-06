@@ -23,8 +23,9 @@ pub enum State {
 
     // Admin module
     Admin,
-    AdminChoose(String),
-    AdminRename(String),
+    AdminChoose(String),  // user_id
+    AdminRename(String), // // user_id
+    AdminAdd,
 
     // Message module
     AddPollingMsg,           // add the message for poll push.

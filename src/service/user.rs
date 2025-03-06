@@ -21,10 +21,9 @@ pub fn new(conn: Db) -> User {
 
 impl User {
     pub async fn has_admin(&self) -> bool {
-        let count: i32 = sqlx::query_scalar("SELECT COUNT(*) FROM hv_user WHERE is_admin = 1")
+        let count: u32 = sqlx::query_scalar("SELECT COUNT(*) FROM hv_user WHERE is_admin = 1")
             .fetch_one(&self.conn.sqlite_pool)
-            .await
-            .unwrap_or(0);
+            .await.unwrap_or(0);
         count > 0
     }
     
@@ -112,8 +111,21 @@ impl User {
 
     pub async fn set_admin_name(&self, user_id: &str, name: &str) -> bool {
         let result = sqlx::query(
-            "UPDATE hv_user set name = ? WHERE user_id = ?"
-        ).bind(name).bind(user_id).execute(&self.conn.sqlite_pool).await.unwrap().rows_affected();
-        result > 0
+            "UPDATE hv_user set user_name = ? WHERE user_id = ?"
+        )
+            .bind(name)
+            .bind(user_id)
+            .execute(&self.conn.sqlite_pool)
+            .await;
+        
+        match result { 
+            Ok(r) => {
+                r.rows_affected() > 0
+            },
+            Err(e) => {
+                eprintln!("set_admin_name error: {}", e.to_string());
+                false
+            }
+        }
     }
 }

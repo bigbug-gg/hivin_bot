@@ -1,12 +1,26 @@
-mod admin_callback;
-pub mod callback_query;
-pub mod group;
+mod admin;
+mod callback_query;
+mod group_event;
+mod poll_message;
+mod welcome_message;
+mod group_set;
 
-use crate::{commands, State};
-use teloxide::dispatching::dialogue::ErasedStorage;
-use teloxide::dptree::{case};
-use teloxide::{dispatching::{UpdateFilterExt, UpdateHandler}, dptree, prelude::*};
-use crate::my_handler::group::{handle_member_update, handle_my_chat_member};
+use crate::my_handler::admin::{add_admin_submit, rename_admin_submit};
+use crate::my_handler::group_event::{handle_member_update, handle_my_chat_member};
+
+use crate::{commands, HandlerResult, State};
+use log::info;
+
+use teloxide::{
+    dptree::case,
+    dispatching::dialogue::ErasedStorage,
+    dispatching::{UpdateFilterExt, UpdateHandler},
+    dptree,
+    prelude::*,
+};
+use crate::my_handler::group_set::handle_group_push_callback;
+use crate::my_handler::poll_message::{add_poll_message, add_poll_message_title};
+use crate::my_handler::welcome_message::handle_set_welcome_msg;
 
 /// Create handler
 pub fn create() -> UpdateHandler<Box<dyn std::error::Error + Send + Sync + 'static>> {
@@ -23,11 +37,11 @@ pub fn create() -> UpdateHandler<Box<dyn std::error::Error + Send + Sync + 'stat
                 .enter_dialogue::<Message, ErasedStorage<State>, State>()
                 .branch(command_handler())
                 .branch(admin_command_handler())
-                .branch(dialogue_handler())
+                .branch(dialogue_handler()),
         )
 }
 
-fn command_handler() ->UpdateHandler<Box<dyn std::error::Error + Send + Sync + 'static>>{
+fn command_handler() -> UpdateHandler<Box<dyn std::error::Error + Send + Sync + 'static>> {
     dptree::filter(|msg: Message| {
         msg.text()
             .map(|text| text.starts_with('/'))
@@ -47,21 +61,33 @@ fn admin_command_handler() -> UpdateHandler<Box<dyn std::error::Error + Send + S
     .endpoint(commands::start_command::enter)
 }
 
-
 /// Dialogue handler
-fn dialogue_handler() -> UpdateHandler<Box<dyn std::error::Error + Send + Sync + 'static>> {
-    dptree::entry()
-        // Message
-        .branch(case![State::SetWelcomeMsg].endpoint(commands::handle_set_welcome_msg))
-        .branch(case![State::AddPollingMsg].endpoint(commands::handle_add_polling_msg))
-        .branch(case![State::AddPollingTitle(title)].endpoint(commands::handle_add_polling_title))
-        
-        // Update admin user name
-        // .branch(case![State::AdminRename(name)].endpoint(rename_admin_submit))
+ fn dialogue_handler() -> UpdateHandler<Box<dyn std::error::Error + Send + Sync + 'static>> {
+    info!("Dialogue handler created.");
+    Update::filter_message()
+        .filter_async(|msg: Message| async move { msg.text().is_some() }) //
+        .branch(
+            dptree::entry()
+                // Message
+                .branch(case![State::SetWelcomeMsg].endpoint(handle_set_welcome_msg))
 
-        // Group
-        .branch(case![State::Group].endpoint(commands::handle_group_push_callback))
+                // Add poll message
+                .branch(case![State::AddPollingMsg].endpoint(add_poll_message))
+                .branch( case![State::AddPollingTitle(title)].endpoint(add_poll_message_title))
 
-        // other
-        .branch(case![State::Menu].endpoint(commands::handle_invalid_command))
+                // Update admin user name
+                .branch(case![State::AdminRename(user_id)].endpoint(rename_admin_submit))
+                .branch(case![State::AdminAdd].endpoint(add_admin_submit))
+                // Group
+                .branch(case![State::Group].endpoint(handle_group_push_callback))
+                // other
+                .branch(case![State::Menu].endpoint(handle_invalid_command)),
+        )
+}
+
+
+async fn handle_invalid_command(bot: Bot, msg: Message) -> HandlerResult {
+    bot.send_message(msg.chat.id, "Invalid command. Type /help")
+        .await?;
+    Ok(())
 }

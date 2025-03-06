@@ -31,8 +31,10 @@ pub enum MsgType {
 }
 
 impl Msg {
+    /// Get all message (exclude welcome type messages)
     pub async fn all(&self) -> Vec<Message> {
-        sqlx::query("SELECT * FROM hv_msg")
+        sqlx::query("SELECT * FROM hv_msg WHERE msg_type = ? ")
+            .bind(MsgType::Polling as i32)
             .map(|row: sqlx::sqlite::SqliteRow| Message {
                 id: row.get("id"),
                 msg_type: row.try_get("msg_type").unwrap(),
@@ -45,31 +47,8 @@ impl Msg {
             .unwrap()
     }
 
-    /// Add new msg, return the msg id.
+    /// Add the new message, return id.
     pub async fn add_msg(&self, msg_type: MsgType, msg_text: &str, msg_title: &str) -> i64 {
-        // 欢迎消息，始终只有能有 1 条数据
-        // 当存在之前的数据， 用新的数据更新
-        // 不存在则新增
-        if msg_type == MsgType::Welcome {
-            let has_one: i32 = sqlx::query_scalar("SELECT count(*) FROM hv_msg WHERE msg_type = ?")
-                .bind(msg_type.clone() as i32)
-                .fetch_one(&self.conn.sqlite_pool)
-                .await
-                .unwrap();
-
-            if has_one > 0 {
-                let last_id = sqlx::query("UPDATE hv_msg set msg_text = ?, msg_name = 'welcome' WHERE msg_type = ?")
-                    .bind(msg_text)
-                    .bind(msg_type.clone() as i32)
-                    .execute(&self.conn.sqlite_pool)
-                    .await
-                    .unwrap()
-                    .last_insert_rowid();
-
-                return last_id;
-            }
-        }
-
         sqlx::query("INSERT INTO hv_msg (msg_type, msg_text, msg_title) VALUES (?, ?, ?)")
             .bind(msg_type.clone() as i32)
             .bind(msg_text)
@@ -79,7 +58,36 @@ impl Msg {
             .unwrap()
             .last_insert_rowid()
     }
+
     
+    /// Add welcome message
+    pub async fn add_welcome_msg(&self,msg_text: &str) -> bool {
+        let msg_type = MsgType::Welcome as i32;
+        let msg_title = "welcome";
+        
+        
+        let has_one: i32 = sqlx::query_scalar("SELECT count(*) FROM hv_msg WHERE msg_type = ?")
+            .bind(msg_type)
+            .fetch_one(&self.conn.sqlite_pool)
+            .await
+            .unwrap();
+        // has one do update
+       if has_one > 0 {
+           let rows_affected = sqlx::query("UPDATE hv_msg set msg_text = ?, msg_title = 'welcome' WHERE msg_type = ?")
+                .bind(msg_text)
+                .bind(msg_type)
+                .execute(&self.conn.sqlite_pool)
+                .await
+                .unwrap()
+                .rows_affected();
+
+           return rows_affected > 0
+        }
+        
+        let insert_id  = self.add_msg(MsgType::Welcome, msg_text, msg_title).await;
+        insert_id > 0
+    }
+
     /// Remove msg by the id
     /// 1. deleting polling data if you use this msg
     /// 2. to delete msg.

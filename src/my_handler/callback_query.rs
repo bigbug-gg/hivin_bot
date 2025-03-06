@@ -1,14 +1,16 @@
 use crate::commands::start_command::admin_menu;
-use crate::my_handler::admin_callback::{admin_chose_menu, all_admin, delete_admin, rename_admin};
+use crate::my_handler::admin::*;
 use crate::service::{msg, polling_msg, Db};
 use crate::{HandlerResult, MainDialogue, State};
 use chrono::NaiveTime;
-use log::info;
+use log::{info};
 use teloxide::payloads::{AnswerCallbackQuerySetters, EditMessageTextSetters};
 use teloxide::prelude::{Message, Requester};
 use teloxide::types::{CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup};
 use teloxide::Bot;
-
+use crate::my_handler::poll_message::{init_add_poll_message, list_poll_message};
+use crate::my_handler::welcome_message::{current_welcome_message, setting_welcome_message};
+use crate::my_handler::group_set::{show_group_buttons};
 /// Query enter
 pub async fn enter(bot: Bot, q: CallbackQuery, dialogue: MainDialogue, db: Db) -> HandlerResult {
     info!("Into callback query handle");
@@ -28,9 +30,13 @@ pub async fn enter(bot: Bot, q: CallbackQuery, dialogue: MainDialogue, db: Db) -
     let parts: Vec<&str> = callback_str.split("_").collect();
     match parts.as_slice() {
         // Choose group
-        ["group", group_id] => {
-            show_group_buttons(&bot, &q, &dialogue, group_id).await?;
-        }
+        ["group", group_id, group_name] => {
+            show_group_buttons(bot, q.clone(), dialogue, group_id, group_name).await?;
+        } // todo 从这里开始，把 show_group_buttons 方法的数据，放到 State,后面不用携带参数
+        
+        // ["group", "add", "push"] => {
+        //     show_group_buttons(bot, q.clone(), dialogue).await?;
+        // }
 
         ["group", "msg", group_id] => {
             show_msg_list(&bot, &q, &dialogue, db, group_id).await?;
@@ -38,15 +44,16 @@ pub async fn enter(bot: Bot, q: CallbackQuery, dialogue: MainDialogue, db: Db) -
 
         // Admin list
         ["managers"] => {
-            all_admin(&bot, &q, &db).await?;
+            all_admin(bot, q, db).await?;
         }
 
         // add new
         ["newly", "added"] => {
-            bot.answer_callback_query(q.id)
-                .text("Development...")
-                .await?;
+            let message = q.message.as_ref().unwrap();
+            dialogue.update(State::AdminAdd).await?;
+            bot.edit_message_text(message.chat().id, message.id(), "Add admin: [ID] [name]:\n").await?;
         }
+
         ["back", "admin"] => {
             let mess = q.message.as_ref().unwrap();
             bot.edit_message_text(mess.chat().id, mess.id(), "Choose action")
@@ -60,12 +67,33 @@ pub async fn enter(bot: Bot, q: CallbackQuery, dialogue: MainDialogue, db: Db) -
             admin_chose_menu(&bot, &q).await?;
         }
         ["admin", "delete"] => {
-            delete_admin(&bot, &q, dialogue, &db).await?;
+            delete_admin(bot, q, dialogue, db).await?;
         }
         ["admin", "rename"] => {
-            rename_admin(&bot, &q, dialogue).await?;
+            rename_admin(bot, q, dialogue).await?;
         }
-       
+        ["setting", "welcome", "message"] => {
+            setting_welcome_message(bot, q, dialogue).await?;
+        }
+        ["current", "welcome", "message"] => {
+            current_welcome_message(bot, q, db).await?;
+        }
+
+        ["add", "poll", "message"] => {
+            init_add_poll_message(bot, q, dialogue).await?;
+        }
+      
+        ["list", "poll", "message"] => {
+            list_poll_message(bot, q, db).await?;
+        }
+
+
+        ["cancel"] => {
+            let mess = q.message.as_ref().unwrap();
+            dialogue.update(State::Menu).await?;
+            bot.edit_message_text(mess.chat().id, mess.id(), "end").await?;
+            bot.delete_message(mess.chat().id, mess.id()).await?;
+        }
         _ => {
             bot.answer_callback_query(q.id)
                 .text(format!("Missing actuator callback query: {:?}", parts))
@@ -73,39 +101,6 @@ pub async fn enter(bot: Bot, q: CallbackQuery, dialogue: MainDialogue, db: Db) -
         }
     }
 
-    Ok(())
-}
-
-async fn show_group_buttons(
-    bot: &Bot,
-    q: &CallbackQuery,
-    dialogue: &MainDialogue,
-    group_id: &str,
-) -> HandlerResult {
-    let message = q.message.as_ref().unwrap();
-    let message_id = message.id();
-
-    // Create operation buttons
-    let keyboard = InlineKeyboardMarkup::new(vec![vec![
-        InlineKeyboardButton::callback(
-            "📲 Add Push",
-            format!("addpush_{}_{}", group_id, message_id),
-        ),
-        InlineKeyboardButton::callback(
-            "👀 View Push",
-            format!("viewpush_{}_{}", group_id, message_id),
-        ),
-        InlineKeyboardButton::callback("Cancel", format!("cancel_{}_{}", group_id, message_id)),
-    ]]);
-
-    dialogue.update(State::Group).await?;
-    bot.edit_message_text(
-        message.chat().id,
-        message_id,
-        format!("Selected group: {}\nPlease choose an operation:", group_id),
-    )
-    .reply_markup(keyboard)
-    .await?;
     Ok(())
 }
 
