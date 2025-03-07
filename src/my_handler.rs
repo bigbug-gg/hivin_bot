@@ -18,7 +18,7 @@ use teloxide::{
     dptree,
     prelude::*,
 };
-use crate::my_handler::group_set::handle_group_push_callback;
+use crate::my_handler::group_set::handle_group_push_datetime;
 use crate::my_handler::poll_message::{add_poll_message, add_poll_message_title};
 use crate::my_handler::welcome_message::handle_set_welcome_msg;
 
@@ -79,7 +79,7 @@ fn admin_command_handler() -> UpdateHandler<Box<dyn std::error::Error + Send + S
                 .branch(case![State::AdminRename(user_id)].endpoint(rename_admin_submit))
                 .branch(case![State::AdminAdd].endpoint(add_admin_submit))
                 // Group
-                .branch(case![State::Group].endpoint(handle_group_push_callback))
+                .branch(case![State::GroupPushMsg{group_db_id, group_name, msg_db_id}].endpoint(handle_group_push_datetime))
                 // other
                 .branch(case![State::Menu].endpoint(handle_invalid_command)),
         )

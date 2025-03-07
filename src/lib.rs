@@ -34,9 +34,8 @@ pub enum State {
 
     // Group module
     Group,
-    GroupChoose{group_db_id: i64},
-    GroupPushMsg{group_db_id: i64, msg_db_id: i64},
-    GroupPushTime,
+    GroupChoose{group_db_id: i64, group_name: String},
+    GroupPushMsg{group_db_id: i64, group_name: String, msg_db_id: i64},
 
     // 这个作废
     GroupPush {

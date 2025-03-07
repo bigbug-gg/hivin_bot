@@ -13,7 +13,7 @@ async fn get_sev() -> PollingMsgDb {
 #[tokio::test]
 async fn add_group_msg_test() {
     let sev = get_sev().await;
-    let id = sev.add_polling_msg(MSG_ID as i64, GROUP_ID, "08:30").await.unwrap();
+    let id = sev.add_polling_msg(MSG_ID as i64, GROUP_ID.parse().unwrap(), "08:30").await.unwrap();
     assert!(id > 0);
     println!("group id is {}", id);
 }

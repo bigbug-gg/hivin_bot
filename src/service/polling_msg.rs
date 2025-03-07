@@ -22,11 +22,11 @@ pub fn new(conn: Db) -> PollingMsgDb {
 }
 
 impl PollingMsgDb {
-    // 关联消息到群组
+    
     pub async fn add_polling_msg(
         &self,
         msg_id: i64,
-        group_id: &str,
+        group_id: i64,
         send_time: &str,
     ) -> Result<i64> {
         let result = sqlx::query(
@@ -73,7 +73,7 @@ impl PollingMsgDb {
     }
 
     // 获取群组的所有关联消息
-    pub async fn get_group_msgs(&self, group_id: &str) -> Result<Vec<PollingMsg>> {
+    pub async fn get_group_msgs(&self, group_id: i64) -> Result<Vec<PollingMsg>> {
         let msgs = sqlx::query(
             r#"
             SELECT pm.id, pm.hv_msg_id, g.group_id, pm.send_time, 

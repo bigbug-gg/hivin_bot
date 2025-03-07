@@ -1,81 +1,116 @@
-use chrono::NaiveTime;
+//! # Group
+//! All operations related to groups are here
+
+use crate::commands::start_command::group_buttons;
+use crate::service::{msg, polling_msg, Db};
 use crate::{HandlerResult, MainDialogue, State};
+use chrono::NaiveTime;
+use std::str::FromStr;
 use teloxide::payloads::EditMessageTextSetters;
 use teloxide::prelude::*;
 use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};
 use teloxide::Bot;
-use crate::service::{msg, polling_msg, Db};
 
-pub async fn show_group_buttons(
+pub async fn show_group_menu(
     bot: Bot,
     q: CallbackQuery,
     dialogue: MainDialogue,
     group_id: &str,
     group_name: &str,
 ) -> HandlerResult {
-    
     let message = q.message.as_ref().unwrap();
     let message_id = message.id();
 
-    // Create operation buttons
-    let keyboard = InlineKeyboardMarkup::new(vec![vec![
-        InlineKeyboardButton::callback(
-            "📲 Add Push",
-            "group_add_push",
-        ),
-        InlineKeyboardButton::callback(
-            "👀 View Push",
-            "group_view_push",
-        ),
-        InlineKeyboardButton::callback("Cancel", format!("cancel_{}_{}", group_id, message_id)),
-    ]]);
+    dialogue
+        .update(State::GroupChoose {
+            group_db_id: i64::from_str(group_id).unwrap(),
+            group_name: group_name.to_string(),
+        })
+        .await?;
 
-    dialogue.update(State::Group).await?;
     bot.edit_message_text(
         message.chat().id,
         message_id,
-        format!("Selected group: {}\nPlease choose an operation:", group_name),
+        format!("{}\nPlease choose an operation:", group_name),
     )
-    .reply_markup(keyboard)
+    .reply_markup(group_menu())
     .await?;
     Ok(())
 }
 
+pub fn group_menu() -> InlineKeyboardMarkup {
+    InlineKeyboardMarkup::new(vec![vec![
+        InlineKeyboardButton::callback("📲 Add Push", "group_add_push"),
+        InlineKeyboardButton::callback("👀 View Push", "group_view_push"),
+        InlineKeyboardButton::callback("Cancel", "cancel_group"),
+    ]])
+}
 
-//
-// 群推送,展示消息
-// 处理"设置"按钮的回调
-// 1. 展示所有的 内容 标题
-// 2. 选择其中一个
-// 3. 设置时间
-// 4. 完成当前操作
-#[deprecated]
-async fn handle_add_group_push_callback(bot: &Bot, q: &CallbackQuery, db: Db) -> HandlerResult {
-    if q.message.is_none() {
-        return Ok(());
-    }
-
-    bot.answer_callback_query(&q.id).text("设置消息...").await?;
-
-    let parts: Vec<&str> = q.data.as_ref().unwrap().split('_').collect();
-    let group_id = parts[1];
-
+/// Show group buttons
+pub async fn show_group_buttons(
+    bot: Bot,
+    q: CallbackQuery,
+    dialogue: MainDialogue,
+    db: Db,
+) -> HandlerResult {
     let message = q.message.as_ref().unwrap();
-    let all_msg = msg::new(db).all().await;
+    match group_buttons(db).await {
+        Some(groups) => {
+            dialogue.update(State::Group).await?;
+            bot.edit_message_text(message.chat().id, message.id(), "Selected group:")
+                .reply_markup(groups)
+                .await?;
+        }
+        None => {
+            dialogue.update(State::Menu).await?;
+            bot.edit_message_text(
+                message.chat().id,
+                message.id(),
+                "The robot has not joined any groups yet!",
+            )
+            .await?;
+        }
+    }
+    Ok(())
+}
 
-    let mut keyboard_buttons: Vec<Vec<InlineKeyboardButton>> = vec![
-        // 返回按钮单独一行，放在最前面
-        vec![InlineKeyboardButton::callback(
-            "⬅️ 返回",
-            format!("back_to_ops_{}", group_id),
-        )],
-    ];
+/// Group add push
+/// Show the message list button
+pub async fn group_add_push(
+    bot: Bot,
+    q: CallbackQuery,
+    dialogue: MainDialogue,
+    db: Db,
+) -> HandlerResult {
+    let message = q.message.as_ref().unwrap();
 
-    // 把 消息 设置成按钮
-    for msg_info in all_msg {
+    let (group_db_id, group_name) = match dialogue.get().await?.unwrap() {
+        State::GroupChoose {
+            group_db_id,
+            group_name,
+        } => (group_db_id, group_name),
+        _ => {
+            bot.edit_message_text(
+                message.chat().id,
+                message.id(),
+                "Message is empty. Add content to continue.",
+            )
+            .await?;
+            dialogue.update(State::Menu).await?;
+            return Ok(());
+        }
+    };
+
+    let message_list = msg::new(db).all().await;
+    let mut keyboard_buttons: Vec<Vec<InlineKeyboardButton>> =
+        vec![vec![InlineKeyboardButton::callback(
+            "⬅️ Back",
+            format!("group_{}_{}", group_db_id, group_name),
+        )]];
+    for msg_info in message_list {
         keyboard_buttons.push(vec![InlineKeyboardButton::callback(
             msg_info.msg_title,
-            format!("pushmsg_{}_{}", group_id, msg_info.id,),
+            format!("group_msg_{}", msg_info.id,),
         )]);
     }
 
@@ -83,47 +118,53 @@ async fn handle_add_group_push_callback(bot: &Bot, q: &CallbackQuery, db: Db) ->
     bot.edit_message_text(
         message.chat().id,
         message.id(),
-        "设置页面\n请选择定时发送消息的群：",
+        "Please specify the message:\n",
     )
-        .reply_markup(keyboard)
-        .await?;
+    .reply_markup(keyboard)
+    .await?;
 
     Ok(())
 }
 
-///
-/// 群推送,选择消息
-async fn handle_set_push_time_callback(
-    bot: &Bot,
-    q: &CallbackQuery,
+/// Group add push: choose the message
+pub async fn group_msg_choose(
+    bot: Bot,
+    q: CallbackQuery,
     dialogue: MainDialogue,
+    msg_db_id: i64,
 ) -> HandlerResult {
-    if q.message.is_none() {
-        return Ok(());
-    }
-    bot.answer_callback_query(&q.id).text("设置时间...").await?;
-
-    let parts: Vec<&str> = q.data.as_ref().unwrap().split('_').collect();
-    let group_id = parts[1];
-    let msg_id = parts[2];
-
     let message = q.message.as_ref().unwrap();
+    let (group_db_id, group_name) = match dialogue.get().await?.unwrap() {
+        State::GroupChoose {
+            group_db_id,
+            group_name,
+        } => (group_db_id, group_name),
+        _ => {
+            bot.edit_message_text(message.chat().id, message.id(), "Abnormal status, exited!")
+                .await?;
+            dialogue.update(State::Menu).await?;
+            return Ok(());
+        }
+    };
 
     dialogue
-        .update(State::GroupPush {
-            msg_id: msg_id.to_string(),
-            group_id: group_id.to_string(),
+        .update(State::GroupPushMsg {
+            group_db_id,
+            group_name,
+            msg_db_id,
         })
         .await?;
-    bot.send_message(message.chat().id, "请输入推送时间，格式 HH:MM, 如 08:20\n")
-        .await?;
+    bot.edit_message_text(
+        message.chat().id,
+        message.id(),
+        "Time (HH:MM): e.g. 08:20\n",
+    )
+    .await?;
     Ok(())
 }
 
-///
-/// 群推送,设置时间
-#[deprecated]
-pub async fn handle_group_push_callback(
+/// Group add push: set push datetime
+pub async fn handle_group_push_datetime(
     bot: Bot,
     msg: Message,
     dialogue: MainDialogue,
@@ -131,7 +172,7 @@ pub async fn handle_group_push_callback(
 ) -> HandlerResult {
     let time_str = msg.text();
     if time_str.is_none() {
-        bot.send_message(msg.chat.id, "请输入时间，格式为 HH:MM, 例如: 08:20\n")
+        bot.send_message(msg.chat.id, "Time (HH:MM): e.g. 08:20\n")
             .await?;
         return Ok(());
     }
@@ -142,102 +183,122 @@ pub async fn handle_group_push_callback(
     };
 
     if !time_ok {
-        bot.send_message(msg.chat.id, "请输入时间错误，格式为 HH:MM, 例如: 08:20\n")
+        bot.send_message(msg.chat.id, "Wrong format. Use HH:MM (e.g. 08:20)\n")
             .await?;
         return Ok(());
     }
 
     let state = dialogue.get().await?.unwrap();
     match state {
-        State::GroupPush { group_id, msg_id } => {
+        State::GroupPushMsg {
+            group_db_id,
+            group_name,
+            msg_db_id,
+        } => {
             let polling_ser = polling_msg::new(db);
+
             let insert_id = polling_ser
-                .add_polling_msg(msg_id.parse().unwrap(), &group_id, time_str)
+                .add_polling_msg(msg_db_id, group_db_id, time_str)
                 .await?;
-            bot.send_message(
-                msg.chat.id,
-                if insert_id > 0 {
-                    "设置成功"
-                } else {
-                    "设置失败"
-                },
-            )
+            let return_str = if insert_id > 0 { "Success" } else { "Failed" };
+
+            dialogue
+                .update(State::GroupChoose {
+                    group_db_id,
+                    group_name,
+                })
+                .await?;
+            bot.send_message(msg.chat.id, return_str)
+                .reply_markup(group_menu())
                 .await?;
         }
         _ => {
-            bot.send_message(msg.chat.id, "状态异常，触发重置状态...")
+            bot.send_message(msg.chat.id, "Abnormal status, exited!")
                 .await?;
-            bot.send_message(msg.chat.id, "重置状态完成").await?;
         }
     }
+
     dialogue.update(State::Menu).await?;
     Ok(())
 }
 
-/// 群推送，查看已有推送
-async fn handle_view_group_callback(bot: &Bot, q: &CallbackQuery, db: Db) -> HandlerResult {
-    if q.message.is_none() {
-        return Ok(());
-    }
-
-    let parts: Vec<&str> = q.data.as_ref().unwrap().split('_').collect();
-    let group_id = parts[1];
-
+/// Group: view the push list
+pub async fn group_view_push(
+    bot: Bot,
+    q: CallbackQuery,
+    dialogue: MainDialogue,
+    db: Db,
+) -> HandlerResult {
     let message = q.message.as_ref().unwrap();
-    let all_push = polling_msg::new(db).get_group_msgs(group_id).await?;
+    let state = dialogue.get().await?.unwrap();
+    let (group_db_id, group_name) = match state {
+        State::GroupChoose {
+            group_db_id,
+            group_name,
+        } => (group_db_id, group_name),
+        _ => {
+            bot.edit_message_text(message.chat().id, message.id(), "Abnormal status, exited!")
+                .await?;
+            dialogue.update(State::Menu).await?;
+            return Ok(());
+        }
+    };
+
+    let all_push = polling_msg::new(db).get_group_msgs(group_db_id).await?;
 
     let mut keyboard_buttons: Vec<Vec<InlineKeyboardButton>> = vec![
-        // 返回按钮单独一行，放在最前面
+        // back front other button.
         vec![InlineKeyboardButton::callback(
-            "⬅️ 返回",
-            format!("back_to_ops_{}", group_id),
+            "⬅️ back",
+            format!("group_{}_{}", group_db_id, group_name),
         )],
     ];
 
     for push_info in all_push {
         keyboard_buttons.push(vec![InlineKeyboardButton::callback(
             format!("{}-{}", push_info.send_time, push_info.msg_title),
-            format!("deletepush_{}_{}", group_id, push_info.id,),
+            format!("group_delete_push_{}", push_info.id,),
         )]);
     }
 
     let keyboard = InlineKeyboardMarkup::new(keyboard_buttons);
-    bot.edit_message_text(
-        message.chat().id,
-        message.id(),
-        "已有推送\n点击可删除对应推送：",
-    )
+    bot.edit_message_text(message.chat().id, message.id(), "Click to delete:")
         .reply_markup(keyboard)
         .await?;
     Ok(())
 }
 
-/// 群推送，删除已有推送
-async fn handle_delete_group_push_callback(bot: &Bot, q: &CallbackQuery, db: Db) -> HandlerResult {
-    if q.message.is_none() {
-        return Ok(());
-    }
-
-    let parts: Vec<&str> = q.data.as_ref().unwrap().split('_').collect();
-    let group_id = parts[1];
-    let push_id = parts[2];
-
+/// Group: delete the push message.
+pub async fn group_delete_push(
+    bot: Bot,
+    q: CallbackQuery,
+    dialogue: MainDialogue,
+    db: Db,
+    push_id: i64,
+) -> HandlerResult {
     let message = q.message.as_ref().unwrap();
+    let state = dialogue.get().await?.unwrap();
+    let (_group_db_id, _group_name) = match state {
+        State::GroupChoose {
+            group_db_id,
+            group_name,
+        } => (group_db_id, group_name),
+        _ => {
+            bot.edit_message_text(message.chat().id, message.id(), "Abnormal status, exited!")
+                .await?;
+            dialogue.update(State::Menu).await?;
+            return Ok(());
+        }
+    };
+
     let is_ok = polling_msg::new(db.clone())
-        .delete_polling_msg_by_id(push_id.parse().unwrap())
+        .delete_polling_msg_by_id(push_id)
         .await?;
 
-    bot.edit_message_text(
-        message.chat().id,
-        message.id(),
-        if is_ok {
-            "删除成功"
-        } else {
-            "删除失败"
-        },
-    )
+    let return_str = if is_ok { "Success" } else { "Failed" };
+    bot.edit_message_text(message.chat().id, message.id(), return_str)
+        .reply_markup(group_menu())
         .await?;
 
-    handle_view_group_callback(&bot, &q, db).await?;
     Ok(())
 }
