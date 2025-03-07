@@ -116,7 +116,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
 /// Polling thread enter
 async fn poll_task(bot: &Bot, db: Db) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    info!("Executing poll task...");
+
     // Get Datetime HH:mm
     let current_time = Local::now().format("%H:%M").to_string();
     info!("Executing poll task at {}...", current_time);
@@ -134,7 +134,7 @@ async fn poll_task(bot: &Bot, db: Db) -> Result<(), Box<dyn std::error::Error + 
         let group_id: i64 = push_msg.group_id.parse()?;
         info!("Push group_id is: {:?}", push_msg);
         bot.send_message(ChatId(group_id), push_msg.msg_text)
-            .parse_mode(ParseMode::MarkdownV2)
+            .parse_mode(ParseMode::Html)
             .await?;
 
         info!(

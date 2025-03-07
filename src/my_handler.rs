@@ -39,7 +39,8 @@ pub fn create() -> UpdateHandler<Box<dyn std::error::Error + Send + Sync + 'stat
                 .enter_dialogue::<Message, ErasedStorage<State>, State>()
                 .branch(command_handler())
                 .branch(admin_command_handler())
-                .branch(dialogue_handler()),
+                .branch(dialogue_handler())
+                .endpoint(last_branch_handler)
         )
 }
 
@@ -92,4 +93,24 @@ async fn handle_invalid_command(bot: Bot, msg: Message) -> HandlerResult {
     bot.send_message(msg.chat.id, "Invalid command. Type /help")
         .await?;
     Ok(())
+}
+async fn last_branch_handler(bot: Bot, msg: Message) -> HandlerResult {
+    if let Some(text) = msg.text() {
+        info!("not match text: {}", text);
+        if text.starts_with('/') {
+            
+            bot.send_message(
+                msg.chat.id,
+                "Unknown command. Use /help to see available commands."
+            ).await?;
+        } else {
+            // 普通消息
+            // bot.send_message(msg.chat.id, "I only respond to commands.").await?;
+        }
+    } else {
+        info!("received other type message");
+    }
+
+    Ok(())
+    
 }
