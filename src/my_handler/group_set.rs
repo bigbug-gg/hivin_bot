@@ -211,6 +211,8 @@ pub async fn handle_group_push_datetime(
             bot.send_message(msg.chat.id, return_str)
                 .reply_markup(group_menu())
                 .await?;
+
+            return Ok(());
         }
         _ => {
             bot.send_message(msg.chat.id, "Abnormal status, exited!")

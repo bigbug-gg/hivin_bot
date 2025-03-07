@@ -6,7 +6,7 @@ mod welcome_message;
 mod group_set;
 
 use crate::my_handler::admin::{add_admin_submit, rename_admin_submit};
-use crate::my_handler::group_event::{handle_member_update, handle_my_chat_member};
+use crate::my_handler::group_event::handle_new_members;
 
 use crate::{commands, HandlerResult, State};
 use log::info;
@@ -25,8 +25,6 @@ use crate::my_handler::welcome_message::handle_set_welcome_msg;
 /// Create handler
 pub fn create() -> UpdateHandler<Box<dyn std::error::Error + Send + Sync + 'static>> {
     dptree::entry()
-        .branch(Update::filter_chat_member().endpoint(handle_member_update))
-        .branch(Update::filter_my_chat_member().endpoint(handle_my_chat_member))
         .branch(
             Update::filter_callback_query()
                 .enter_dialogue::<CallbackQuery, ErasedStorage<State>, State>()
@@ -34,6 +32,10 @@ pub fn create() -> UpdateHandler<Box<dyn std::error::Error + Send + Sync + 'stat
         )
         .branch(
             Update::filter_message()
+                .branch(
+                    dptree::filter(|msg: Message| {msg.new_chat_members().is_some()})
+                        .endpoint(handle_new_members)
+                )
                 .enter_dialogue::<Message, ErasedStorage<State>, State>()
                 .branch(command_handler())
                 .branch(admin_command_handler())

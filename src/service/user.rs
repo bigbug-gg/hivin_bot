@@ -61,6 +61,13 @@ impl User {
 
     /// Delete admin
     pub async fn delete_admin(&self, user_id: &str) -> bool {
+        let only_one: i32 = sqlx::query_scalar("SELECT COUNT(*) FROM hv_user")
+            .fetch_one(&self.conn.sqlite_pool)
+            .await.unwrap();
+        if only_one == 1 {
+            return false
+        }
+        
         let result = sqlx::query(
             "
         DELETE FROM hv_user WHERE user_id = ?

@@ -24,7 +24,7 @@ async fn is_admin() {
 #[tokio::test]
 async fn delete_admin() {
     let user = get_sev().await;
-    let is_delete = user.delete_admin("12341").await;
+    let is_delete = user.delete_admin("6762311321").await;
     assert!(is_delete);
 }
 

@@ -13,7 +13,7 @@ pub async fn init_add_poll_message(
 ) -> HandlerResult {
     dialogue.update(State::AddPollingMsg).await?;
     let message = q.message.as_ref().unwrap();
-    bot.edit_message_text(message.chat().id,  message.id(), "Step 1: Add welcome message:").await?;
+    bot.edit_message_text(message.chat().id,  message.id(), "Step 1: Add the message content:").await?;
     Ok(())
 }
 

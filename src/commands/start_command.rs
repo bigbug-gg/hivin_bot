@@ -124,7 +124,9 @@ pub async fn group_buttons(db: Db) -> Option<InlineKeyboardMarkup> {
         return None;
     }
 
-    let mut group_but: Vec<Vec<InlineKeyboardButton>> = vec![];
+    let mut group_but: Vec<Vec<InlineKeyboardButton>> = vec![
+        vec![InlineKeyboardButton::callback("Cancel", "cancel")]
+    ];
     for i in my_groups {
         group_but.push(vec![InlineKeyboardButton::callback(
             &i.group_name,

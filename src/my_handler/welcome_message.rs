@@ -1,11 +1,12 @@
+use crate::commands::start_command::hi_msg_menu;
+use crate::service::{msg, Db};
+use crate::{HandlerResult, MainDialogue, State};
 use log::info;
-use teloxide::Bot;
 use teloxide::dispatching::dialogue::GetChatId;
 use teloxide::payloads::{EditMessageTextSetters, SendMessageSetters};
 use teloxide::prelude::*;
-use crate::commands::start_command::hi_msg_menu;
-use crate::{HandlerResult, MainDialogue, State};
-use crate::service::{msg, Db};
+use teloxide::types::ParseMode;
+use teloxide::Bot;
 
 pub async fn handle_set_welcome_msg(
     bot: Bot,
@@ -14,7 +15,7 @@ pub async fn handle_set_welcome_msg(
     db: Db,
 ) -> HandlerResult {
     let welcome_msg = message.text().unwrap().trim();
-    
+
     if welcome_msg.is_empty() {
         bot.send_message(message.chat_id().unwrap(), "Enter message:\n")
             .await?;
@@ -28,8 +29,8 @@ pub async fn handle_set_welcome_msg(
             message.chat_id().unwrap(),
             "Welcome message saved. Triggers on new member join.",
         )
-            .reply_markup(hi_msg_menu())
-            .await?;
+        .reply_markup(hi_msg_menu())
+        .await?;
     } else {
         bot.send_message(message.chat.id, "Setting failed. Please retry.")
             .await?;
@@ -52,11 +53,7 @@ pub async fn setting_welcome_message(
     Ok(())
 }
 
-pub async fn current_welcome_message(
-    bot: Bot,
-    q: CallbackQuery,
-    db: Db,
-) -> HandlerResult {
+pub async fn current_welcome_message(bot: Bot, q: CallbackQuery, db: Db) -> HandlerResult {
     info!("Into the current welcome message");
     let welcome_message = msg::new(db).welcome_msg().await;
     let message = q.message.as_ref().unwrap();
@@ -64,14 +61,16 @@ pub async fn current_welcome_message(
         message.chat().id,
         message.id(),
         format!(
-            "\
-        Current welcome message:\n\
-        {welcome_message} \n\
-        (💡: bot will send this message to new group members)\n\
+            "Current welcome message:
+            ```
+            {welcome_message}
+            ```
+        💡: *bot will send this message to new group members*
     "
         ),
     )
-        .reply_markup(hi_msg_menu())
-        .await?;
+    .parse_mode(ParseMode::MarkdownV2)
+    .reply_markup(hi_msg_menu())
+    .await?;
     Ok(())
 }

@@ -6,6 +6,7 @@ use teloxide::payloads::EditMessageTextSetters;
 use teloxide::prelude::*;
 use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup, Message};
 use teloxide::Bot;
+use crate::commands::start_command::admin_menu;
 
 pub async fn all_admin(bot: Bot, q: CallbackQuery, db: Db) -> HandlerResult {
     info!("Into the all admin dashboard");
@@ -36,7 +37,9 @@ pub async fn admin_chose_menu(bot: &Bot, q: &CallbackQuery) -> HandlerResult {
     let button = InlineKeyboardMarkup::new(vec![vec![
         InlineKeyboardButton::callback("Delete", "admin_delete"),
         InlineKeyboardButton::callback("Rename", "admin_rename"),
-    ]]);
+    ], vec![InlineKeyboardButton::callback("⬅️ Back", "back_admin", )]
+    ]);
+
     let message = q.message.as_ref().unwrap();
     bot.edit_message_text(message.chat().id, message.id(), "Chose action:\n")
         .reply_markup(button)
@@ -56,9 +59,9 @@ pub async fn delete_admin(
         State::AdminChoose(user_id) => {
             let is_ok = user::new(db.clone()).delete_admin(&user_id).await;
             if is_ok {
-                bot.send_message(message.chat().id, "deleted!").await?;
+                bot.answer_callback_query(q.id.clone()).text("deleted!").await?;
             } else {
-                bot.send_message(message.chat().id, "delete fail").await?;
+                bot.answer_callback_query(q.id.clone()).text("delete fail").await?;
             }
 
             // all_admin representative return back.
@@ -140,7 +143,8 @@ pub async fn add_admin_submit(
         State::AdminAdd => {
             let (user_id, user_name) = message.text().unwrap().split_once(' ').unwrap_or(("", ""));
             if user_id.is_empty() || user_name.is_empty() {
-                bot.send_message(message.chat_id().unwrap(), "").await?;
+                bot.send_message(message.chat_id().unwrap(), "Input format error e.g. [ID] [name]:").await?;
+                return Ok(());
             }
             let is_ok = user::new(db).add_admin(user_id, user_name).await;
             bot.send_message(
@@ -150,7 +154,7 @@ pub async fn add_admin_submit(
                 } else {
                     "Failed to add"
                 },
-            )
+            ).reply_markup(admin_menu())
             .await?;
         }
         _ => {
