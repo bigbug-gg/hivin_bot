@@ -18,7 +18,7 @@ HIVIN Bot (海韵Bot) 是一个 Telegram 群发机器人，提供自动欢迎语
 
 ### 1. 克隆项目
 ```bash
-git clone https://github.com/bigbug_gg/hivin_bot.git
+git clone https://github.com/bigbug-gg/hivin_bot.git
 cd hivin-bot
 ```
 ### 2. 配置环境
@@ -34,12 +34,12 @@ cargo run
 
 ### 版本历史
 v1.0.0 (2025-03-07)
-首次发布
-支持自动欢迎语
-支持定时推送
-内置 SQLite 数据库
-贡献
-欢迎提交 Issue 和 Pull Request！
+- 首次发布
+- 支持自动欢迎语
+- 支持定时推送
+- 内置 SQLite 数据库
+- 贡献
+- 欢迎提交 Issue 和 Pull Request！
 
 ### 许可证
 [MIT License]
