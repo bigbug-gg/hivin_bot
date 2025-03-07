@@ -32,7 +32,7 @@ cd hivin_bot
 cp .env.bak .env
 ```
 
-- edit the .env file, set the Telegram Bot Token on TELOXIDE_TOKEN
+- Edit the .env file and set TELOXIDE_TOKEN to your Telegram Bot Token
 - 编辑 .env 文件，设置 TELOXIDE_TOKEN 字段为你的 Telegram Bot Token
 
 ### 3. RUN | 运行项目
