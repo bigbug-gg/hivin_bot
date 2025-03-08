@@ -1,4 +1,4 @@
-# HIVIN Bot
+# HIVIN Tg-Bot
 HIVIN Bot is a Telegram group management bot that streamlines group administration with features such as automated welcome messages and scheduled broadcasts.
 
 HIVIN Bot (海韵Bot) 是一个 Telegram 群发机器人，提供自动欢迎语、定时推送等功能，让群组管理更轻松高效。
